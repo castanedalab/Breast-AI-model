@@ -1,0 +1,38 @@
+model_opts:
+  name: "attention_unet_seg"
+  args:
+    inchannels: 1
+    outchannels: 1
+    # The net_depth will change accordingly to the patch size. For 128x128 it is 3, for 256x256 it is 4. This will define the number of layers of the architecture.
+    net_depth: 4
+
+train_par:
+  gpu_to_use: "cuda:0" # 'cuda:1', select the GPU where you want your training. if 'default' it will use torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  random_seed: "default" # set to 'default' to replicate MICCAI's results
+  epochs: 90
+  batch_size: 1
+  workers: 8
+  lr: 0.001
+  weight_decay: 0.001
+  eval_threshold: 0.5
+  patience: 90
+  early_stopping_flag: True
+  results_path: "./results_seg/experiment"
+  optimizer:
+    name: "AdamW"
+  loss_opts:
+    name: "BCEDiceLoss"
+    args:
+      weight: 0.5 # BCEDiceLoss (default: 0.1)
+      alpha: 1 # this is only for focal loss
+      gamma: 2 # this is only for focal loss
+  num_classes: 2
+
+dataset:
+  experiment: "experiment"
+  data_dir: "./3D_fold"
+  #train: "./data_csv_seg/data_20%/data_train_seg_20%.csv"
+  #dev: "./data_csv_seg/data_20%/data_test_seg_20%.csv"
+  #test: "./data_csv_seg/data_20%/data_test_seg_20%.csv"
+  cache_data: False
+  rescale_factor: 128
