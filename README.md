@@ -1,4 +1,4 @@
-# Breathing Segmentation Project
+# Breast Segmentation Project
 
 This repository contains code for training and inference of a 3D U-Net model for segmentation on volumetric ultrasound (or video) data using PyTorch Lightning.
 
