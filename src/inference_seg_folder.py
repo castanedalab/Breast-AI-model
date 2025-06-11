@@ -9,13 +9,11 @@ from addict import Dict
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-
+import torchvision.transforms.v2 as transforms
+from transforms_seg import ToTensor, Rescale
 import skvideo.io
-
 from model_lightning_seg import MyModel
-from transforms_seg import (
-    get_transforms,
-)  # however you import your train‐time transforms
+from transforms_seg import ToTensor
 
 
 def parse_args():
@@ -64,12 +62,17 @@ class VideoInferenceDataset(Dataset):
 
     def __getitem__(self, idx):
         path = self.files[idx]
-        vid = skvideo.io.vread(path)  # shape (D,H,W,3)
+        video = skvideo.io.vread(path)  # shape (D,H,W,3)
         # rgb→gray: dot with lum weights
-        gray = np.dot(vid, [0.2989, 0.5870, 0.1140])  # (D,H,W)
-        # add channel dims → (1, D, H, W)
-        x = gray[None, ...].astype(np.float32) / 255.0
-        sample = {"image": x, "filename": os.path.basename(path)}
+        vid_rgb2gray = np.zeros(
+            (1, video.shape[0], video.shape[1], video.shape[2]), dtype=np.uint8
+        )
+        for i in range(video.shape[0]):
+            vid_rgb2gray[0, i, :, :] = np.expand_dims(
+                np.dot(video[i], [0.2989, 0.5870, 0.1140]), axis=0
+            )
+
+        sample = {"image": vid_rgb2gray, "filename": os.path.basename(path)}
         if self.transform:
             sample = self.transform(sample)
         return sample
@@ -81,10 +84,11 @@ def main():
     # — load config & grab transforms —
     conf = Dict(yaml.safe_load(open(args.config, "r")))
     # assume you have a function in transforms_seg.py that builds your train/dev transforms
-    test_tf = get_transforms(conf, stage="test")
 
     # — build inference dataset & loader —
-    ds = VideoInferenceDataset(args.input_dir, transform=test_tf)
+    ds = VideoInferenceDataset(
+        args.input_dir, transform=transforms.Compose([ToTensor()])
+    )
     loader = DataLoader(
         ds,
         batch_size=args.batch_size,
