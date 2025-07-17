@@ -16,6 +16,8 @@ project_root/
 │   ├── model_lightning_seg.py# LightningModule defining the 3D U-Net and training/predict logic
 │   ├── train_lightning_kfold_seg.py # Script to train k-fold cross‑validation models
 │   ├── inference_seg_folder.py # Script to run inference on a folder of MP4 videos (soft ensemble)
+│   ├── inference_clas_folder.py # Script to run classification on a folder of MP4 videos (3 ensemble models)
+│   ├── inference_pipeline.py # Script to run both segmentation and classification on a folder of MP4 videos (automatized workflow)
 │   ├── loss.py               # Custom loss functions (e.g., Dice, BCE)
 │   └── utils.py              # Helper functions and utilities
 │
@@ -67,6 +69,26 @@ python src/train_lightning_kfold_seg.py \
   --config default_config_train_seg.yaml \
   --out_dir ./results_seg/experiment/ \
   --folds 10
+```
+
+To train the complete pipeline (segmentation and classification):
+
+```bash
+python inference_pipeline.py `
+  --seg_config      "default_config_train_seg.yaml" `
+  --seg_ckpt_dir    "Your-Path/Segmentacion_ckpts" `
+  --video_dir       "Your-Path/Patient-ID" `
+  --out_mask_dir    "Your-Path/Predictions/Patient-ID" `
+  --seg_batch_size  1 `
+  --cls_ckpt_paths  `
+    "Your-Path/Classification_ckpts/densenet.ckpt" `
+    "Your-Path/Classification_ckpts/mobilenet.ckpt" `
+    "Your-Path/Classification_ckpts/vgg16.ckpt" `
+  --n_samples       5 `
+  --tol             0.2 `
+  --video_ext       ".mp4" `
+  --cls_batch_size  8 `
+  --output_csv      "resultado_ensemble.csv"
 ```
 
 This will:
