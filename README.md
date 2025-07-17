@@ -71,26 +71,6 @@ python src/train_lightning_kfold_seg.py \
   --folds 10
 ```
 
-To train the complete pipeline (segmentation and classification):
-
-```bash
-python inference_pipeline.py `
-  --seg_config      "default_config_train_seg.yaml" `
-  --seg_ckpt_dir    "Your-Path/Segmentacion_ckpts" `
-  --video_dir       "Your-Path/Patient-ID" `
-  --out_mask_dir    "Your-Path/Predictions/Patient-ID" `
-  --seg_batch_size  1 `
-  --cls_ckpt_paths  `
-    "Your-Path/Classification_ckpts/densenet.ckpt" `
-    "Your-Path/Classification_ckpts/mobilenet.ckpt" `
-    "Your-Path/Classification_ckpts/vgg16.ckpt" `
-  --n_samples       5 `
-  --tol             0.2 `
-  --video_ext       ".mp4" `
-  --cls_batch_size  8 `
-  --output_csv      "resultado_ensemble.csv"
-```
-
 This will:
 
 1. Split your dataset into 10 folds (see CSV file paths in the YAML or script args).
@@ -118,7 +98,7 @@ python src/inference_seg_folder.py \
 
 ---
 
-## 📂 Alternative CSV-Based Inference
+## 📂 Full CSV-Based Inference
 
 If you prefer CSV-driven inference (with `dataset_seg.py` and `data_datamodule_seg.py`), see `inference_seg.py`:
 
@@ -130,7 +110,25 @@ python src/inference_seg.py \
   --out_dir ./predictions \
   --batch_size 1
 ```
+To train the complete pipeline (segmentation and classification):
 
+```bash
+python inference_pipeline.py `
+  --seg_config      "default_config_train_seg.yaml" `
+  --seg_ckpt_dir    "Your-Path/Segmentacion_ckpts" `
+  --video_dir       "Your-Path/Patient-ID" `
+  --out_mask_dir    "Your-Path/Predictions/Patient-ID" `
+  --seg_batch_size  1 `
+  --cls_ckpt_paths  `
+    "Your-Path/Classification_ckpts/densenet.ckpt" `
+    "Your-Path/Classification_ckpts/mobilenet.ckpt" `
+    "Your-Path/Classification_ckpts/vgg16.ckpt" `
+  --n_samples       5 `
+  --tol             0.2 `
+  --video_ext       ".mp4" `
+  --cls_batch_size  8 `
+  --output_csv      "resultado_ensemble.csv"
+```
 ---
 
 ## 📋 Dataset Organization
