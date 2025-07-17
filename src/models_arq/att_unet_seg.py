@@ -31,16 +31,25 @@ class encoder_block(nn.Module): #Consist in two conv of 3x3 kernel and a 2x2 max
         return fx,ouput
 
 class decoder_block(nn.Module):
-    def __init__(self,input_channels,n_features):
+    def __init__(self, input_channels, n_features):
         super().__init__()
-        self.up_result=nn.Upsample(scale_factor=2,mode="trilinear",align_corners=True) #The size of the image input is duplicated by two
-        self.ag_result=attention_gate(input_channels,n_features) #Give the spacial information with the corresponding weights
-        self.conv_result=conv_block(input_channels[0]+input_channels[1],n_features) #Conv of 3x3 kernel
+        self.up_result = nn.Upsample(scale_factor=2, mode="trilinear", align_corners=True)
+        self.ag_result = attention_gate(input_channels, n_features)
+        self.conv_result = conv_block(input_channels[0] + input_channels[1], n_features)
 
-    def forward(self,x,s):
-        y=self.ag_result(x,s)
-        x_up=self.up_result(x)
-        x_out=self.conv_result(torch.cat((x_up,y),dim=1))
+    def forward(self, x, s):
+        y = self.ag_result(x, s)
+        x_up = self.up_result(x)
+        
+        # ⚡ FIX: Emparejar tamaños espaciales antes del cat
+        if x_up.shape[2:] != y.shape[2:]:
+            minH = min(x_up.shape[2], y.shape[2])
+            minW = min(x_up.shape[3], y.shape[3])
+            minD = min(x_up.shape[4], y.shape[4])
+            x_up = x_up[:, :, :minH, :minW, :minD]
+            y    = y[:, :, :minH, :minW, :minD]
+        
+        x_out = self.conv_result(torch.cat((x_up, y), dim=1))
         return x_out
 
 

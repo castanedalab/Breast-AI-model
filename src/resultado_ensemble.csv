@@ -1,0 +1,9 @@
+patient_id,final_label,agreement,votes
+4.2,Follow up,1.0,"['Follow up', 'Follow up', 'Follow up', 'Follow up', 'Follow up', 'Follow up']"
+4.1,No follow up,0.8333333333333334,"['No follow up', 'No follow up', 'Follow up', 'No follow up', 'No follow up', 'No follow up']"
+4.4,No follow up,0.8333333333333334,"['No follow up', 'No follow up', 'Follow up', 'No follow up', 'No follow up', 'No follow up']"
+4.3,Follow up,0.6666666666666666,"['No follow up', 'Follow up', 'Follow up', 'No follow up', 'Follow up', 'Follow up']"
+4.5,Follow up,0.6666666666666666,"['Follow up', 'Follow up', 'Follow up', 'No follow up', 'Follow up', 'No follow up']"
+4.6,Follow up,0.6666666666666666,"['No follow up', 'No follow up', 'Follow up', 'Follow up', 'Follow up', 'Follow up']"
+4.7,No follow up,0.6666666666666666,"['No follow up', 'Follow up', 'No follow up', 'No follow up', 'Follow up', 'No follow up']"
+4.8,No follow up,0.6666666666666666,"['Follow up', 'No follow up', 'Follow up', 'No follow up', 'No follow up', 'No follow up']"

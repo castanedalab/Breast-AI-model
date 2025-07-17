@@ -15,6 +15,8 @@ import skvideo.io
 from model_lightning_seg import MyModel
 from transforms_seg import ToTensor
 
+import warnings
+warnings.filterwarnings("ignore")
 
 def parse_args():
     p = argparse.ArgumentParser("3D UNet k-fold folder-based inference")
@@ -87,8 +89,12 @@ def main():
 
     # — build inference dataset & loader —
     ds = VideoInferenceDataset(
-        args.input_dir, transform=transforms.Compose([ToTensor()])
+        args.input_dir, transform=transforms.Compose([
+            Rescale((256, 256)),
+            ToTensor()
+        ])
     )
+    
     loader = DataLoader(
         ds,
         batch_size=args.batch_size,
@@ -106,7 +112,7 @@ def main():
     models = []
     for c in ckpts:
         m = MyModel.load_from_checkpoint(
-            checkpoint_path=c, model_opts=conf.model_opts, train_par=conf.train_par
+            checkpoint_path=c, model_opts=conf.model_opts, train_par=conf.train_par, strict=False
         ).to(device)
         m.eval()
         models.append(m)
