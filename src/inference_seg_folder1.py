@@ -19,6 +19,7 @@ from model_lightning_seg import MyModel
 from transforms_seg import ToTensor
 import time
 import warnings
+import gc
 
 warnings.filterwarnings("ignore")
 
@@ -165,87 +166,103 @@ def save_overlay(video_path, out_overlay_dir, mask):
 
 
 def main():
-    # timer
     start_time = time.time()
     args = parse_args()
-
-    # — load config & grab transforms —
     conf = Dict(yaml.safe_load(open(args.config, "r")))
-    # assume you have a function in transforms_seg.py that builds your train/dev transforms
+    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs(args.out_overlay_dir, exist_ok=True)
 
-    # — build inference dataset & loader —
+    # --- device ---
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        # else "mps"
+        # if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
+    # --- ckpts ---
+    ckpts = sorted(glob.glob(os.path.join(args.ckpt_dir, "kfold_*.ckpt")))
+    if not ckpts:
+        raise RuntimeError(f"No checkpoints found in {args.ckpt_dir}")
+
+    # --- dataset (puedes bajar el tamaño si necesitas memoria) ---
     ds = VideoInferenceDataset(
         args.input_dir,
         transform=transforms.Compose([Rescale(output_size=(128, 128)), ToTensor()]),
     )
 
-    loader = DataLoader(
-        ds,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=conf.train_par.workers,
-        pin_memory=True,
-    )
+    # ---- loop por video ----
+    for vid_idx, path in enumerate(ds.files):
+        fname = os.path.basename(path)
 
-    # — find ckpts & load models —
-    ckpts = sorted(glob.glob(os.path.join(args.ckpt_dir, "kfold_*.ckpt")))
-    if not ckpts:
-        raise RuntimeError(f"No checkpoints found in {args.ckpt_dir}")
-    # device = torch.device(
-    #     "cuda"
-    #     if torch.cuda.is_available()
-    #     else "mps"
-    #     if torch.backends.mps.is_available()
-    #     else "cpu"
-    # )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # obtén muestra (puede ser dict o tensor dependiendo de transform)
+        sample = ds[vid_idx]
 
-    models = []
-    for c in ckpts:
-        m = MyModel.load_from_checkpoint(
-            checkpoint_path=c,
-            model_opts=conf.model_opts,
-            train_par=conf.train_par,
-            strict=False,
-        ).to(device)
-        m.eval()
-        models.append(m)
+        if isinstance(sample, dict):
+            x = sample["image"]
+        else:
+            x = sample  # asumimos tensor
 
-    # — inference & soft‐ensemble —
-    all_probs = []  # will be list of tensors [N,1,D,H,W] per fold
-    with torch.no_grad():
-        for m in models:
-            fold_probs = []
-            for batch in loader:
-                x = batch["image"].to(device)  # shape (B,1,D,H,W)
+        # asegúrate de tensor float
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x)
+
+        # shape ⇒ (1,1,D,H,W)
+        if x.ndim == 4:
+            x = x.unsqueeze(0)
+        x = x.to(device, dtype=torch.float32)
+
+        preds = []
+
+        for c in ckpts:
+            m = MyModel.load_from_checkpoint(
+                checkpoint_path=c,
+                model_opts=conf.model_opts,
+                train_par=conf.train_par,
+                strict=False,
+            ).to(device)
+
+            # usando torch compile
+
+            try:
+                if device.type in ["cuda", "cpu"]:
+                    m = torch.compile(m)
+                elif device.type == "mps":
+                    # puedes probar esto si quieres arriesgar
+                    m = torch.compile(m, mode="default", fullgraph=False)
+            except Exception as e:
+                print(f"[!] torch.compile falló: {e}")
+
+            m.eval()
+
+            with torch.no_grad():
                 logits = m(x)
-                probs = torch.sigmoid(logits)  # (B,1,D,H,W)
-                fold_probs.append(probs.cpu())
-            all_probs.append(torch.cat(fold_probs, dim=0))  # (N,1,D,H,W)
+                probs = torch.sigmoid(logits)  # (1,1,D,H,W)
+                preds.append(probs.cpu())
 
-    # save all_probs as npy array
-    np.save(os.path.join(args.out_dir, "all_probs.npy"), all_probs)
+            # libera modelo antes del siguiente ckpt
+            del m
+            if device.type == "mps":
+                torch.mps.empty_cache()
+            gc.collect()
 
-    # average
-    avg = sum(all_probs) / len(all_probs)  # (N,1,D,H,W)
-    thr = conf.train_par.eval_threshold
-    # — save per‐video mask —
-    os.makedirs(args.out_dir, exist_ok=True)
-    names = [os.path.basename(p) for p in ds.files]
-    averaged = avg.numpy()
-    for i, fname in enumerate(names):
-        mask = (averaged[i, 0] >= thr).astype(np.uint8)
+        # promedio
+        avg = torch.stack(preds, dim=0).mean(dim=0)  # (1,1,D,H,W)
+        thr = conf.train_par.eval_threshold
+        mask = (avg[0, 0] >= thr).numpy().astype(np.uint8)
+
+        # guarda
         out_name = os.path.splitext(fname)[0] + "_masken.npy"
         np.save(os.path.join(args.out_dir, out_name), mask)
-        video_path = os.path.join(args.input_dir, fname)
-        save_overlay(video_path, args.out_overlay_dir, mask)
 
-        # save_overlay(args.input_dir, names[i], args.out_overlay_dir, mask)
+        # overlay
+        save_overlay(path, args.out_overlay_dir, mask)
 
-    print(f"Saved {len(names)} masks → {args.out_dir}")
+        print(f"[✓] {fname} procesado ({vid_idx + 1}/{len(ds)})")
 
-    elapsed_time = time.time() - start_time
-    print(f"Inference completed in {elapsed_time:.2f} seconds.")
+    print(f"\nHecho. Máscaras en: {args.out_dir}")
+    print(f"Tiempo total: {time.time() - start_time:.2f} segundos")
 
 
 if __name__ == "__main__":
