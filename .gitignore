@@ -5,6 +5,7 @@
 /experiment_emilio/*
 #/src/predictions/*
 /src/P4/*
+/src/nomass/*
 /src/predictions/*
 /src/overlays/*
 /src/onnx_models/*

@@ -27,11 +27,40 @@ def parse_args():
         help="Folder with model_fold*.onnx",
     )
     p.add_argument(
-        "--input_dir", "-i", default="./videos", help="Folder with test .mp4 videos"
+        "--input_dir", "-i", default="./nomass", help="Folder with test .mp4 videos"
     )
     p.add_argument("--out_dir", "-o", default="./predictions")
     p.add_argument("--out_overlay_dir", "-ov", default="./overlays")
     return p.parse_args()
+
+
+def cropper(video, crop_size=912):
+    D, H, W, _ = video.shape
+
+    # Calcula el semilado del recorte
+    crop_size = 912
+    half = crop_size // 2
+
+    # Centros
+    cy, cx = H // 2, W // 2
+
+    # Candidatos de inicio y fin
+    y1, y2 = cy - half, cy + half
+    x1, x2 = cx - half, cx + half
+
+    # Ajusta para no salirse de los bordes
+    if y1 < 0:
+        y1, y2 = 0, crop_size
+    if x1 < 0:
+        x1, x2 = 0, crop_size
+    if y2 > H:
+        y2, y1 = H, H - crop_size
+    if x2 > W:
+        x2, x1 = W, W - crop_size
+
+    # Finalmente recorta
+    video = video[:, y1 : y1 + crop_size, x1 : x1 + crop_size, :]
+    return video
 
 
 class VideoInferenceDataset(Dataset):
@@ -47,12 +76,8 @@ class VideoInferenceDataset(Dataset):
     def __getitem__(self, idx):
         path = self.files[idx]
         video = skvideo.io.vread(path)
-        D, H, W, _ = video.shape
-        crop_size = 912
-        center_x, center_y = W // 2, H // 2
-        video = video[
-            :, center_y - 456 : center_y + 456, center_x - 456 : center_x + 456, :
-        ]
+
+        video = cropper(video, crop_size=912)
 
         vid_rgb2gray = np.zeros(
             (1, video.shape[0], video.shape[1], video.shape[2]), dtype=np.uint8
@@ -74,11 +99,12 @@ class VideoInferenceDataset(Dataset):
 def save_overlay(video_path, out_overlay_dir, mask):
     os.makedirs(out_overlay_dir, exist_ok=True)
     video = skvideo.io.vread(video_path)
-    D, H, W, _ = video.shape
-    center_x, center_y = W // 2, H // 2
-    video = video[
-        :, center_y - 456 : center_y + 456, center_x - 456 : center_x + 456, :
-    ]
+    video = cropper(video, crop_size=912)
+    # D, H, W, _ = video.shape
+    # center_x, center_y = W // 2, H // 2
+    # video = video[
+    #     :, center_y - 456 : center_y + 456, center_x - 456 : center_x + 456, :
+    # ]
     overlay = video.copy().astype(np.uint8)
     D, H, W, _ = overlay.shape
 
