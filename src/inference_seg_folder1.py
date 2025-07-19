@@ -176,8 +176,8 @@ def main():
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
-        # else "mps"
-        # if torch.backends.mps.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
         else "cpu"
     )
 
@@ -222,17 +222,6 @@ def main():
                 train_par=conf.train_par,
                 strict=False,
             ).to(device)
-
-            # usando torch compile
-
-            try:
-                if device.type in ["cuda", "cpu"]:
-                    m = torch.compile(m)
-                elif device.type == "mps":
-                    # puedes probar esto si quieres arriesgar
-                    m = torch.compile(m, mode="default", fullgraph=False)
-            except Exception as e:
-                print(f"[!] torch.compile falló: {e}")
 
             m.eval()
 
