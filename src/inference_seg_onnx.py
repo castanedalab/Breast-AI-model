@@ -114,7 +114,9 @@ def main():
     if torch.cuda.is_available():
         print("Using CUDAExecutionProvider for ONNX inference")
         sessions = [
-            ort.InferenceSession(p, providers=["CUDAExecutionProvider"])
+            ort.InferenceSession(
+                p, providers=["TensorrtExecutionProvider", "CUDAExecutionProvider"]
+            )
             for p in onnx_paths
         ]
     else:
