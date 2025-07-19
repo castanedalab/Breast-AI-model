@@ -9,3 +9,4 @@
 /src/overlays/*
 /src/videos/*
 /src/onnx_models/*
+/src/onnx_models_preprocessed/*

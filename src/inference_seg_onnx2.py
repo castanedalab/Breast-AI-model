@@ -21,7 +21,10 @@ def parse_args():
     p = argparse.ArgumentParser("ONNX ensemble inference for 3D segmentation")
     p.add_argument("--config", "-c", default="default_config_train_seg.yaml")
     p.add_argument(
-        "--onnx_dir", "-k", default="./onnx_models", help="Folder with model_fold*.onnx"
+        "--onnx_dir",
+        "-k",
+        default="./onnx_models_quantized",
+        help="Folder with model_fold*.onnx",
     )
     p.add_argument(
         "--input_dir", "-i", default="./videos", help="Folder with test .mp4 videos"
@@ -94,7 +97,7 @@ def save_overlay(video_path, out_overlay_dir, mask):
 
     out_array = np.stack(out_frames, axis=0)
     base = os.path.splitext(os.path.basename(video_path))[0]
-    out_name = f"{base}_overlay.mp4"
+    out_name = f"{base}_overlay_quantized.mp4"
     skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
 
 
@@ -123,7 +126,7 @@ def main():
         args.input_dir, transform=transforms.Compose([Rescale((128, 128)), ToTensor()])
     )
 
-    onnx_paths = sorted(glob.glob(os.path.join(args.onnx_dir, "model_fold*.onnx")))
+    onnx_paths = sorted(glob.glob(os.path.join(args.onnx_dir, "*.onnx")))
 
     for vid_idx, path in enumerate(ds.files):
         fname = os.path.basename(path)
