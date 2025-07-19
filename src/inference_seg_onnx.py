@@ -114,9 +114,7 @@ def main():
     if torch.cuda.is_available():
         print("Using CUDAExecutionProvider for ONNX inference")
         sessions = [
-            ort.InferenceSession(
-                p, providers=["TensorrtExecutionProvider", "CUDAExecutionProvider"]
-            )
+            ort.InferenceSession(p, providers=["CUDAExecutionProvider"])
             for p in onnx_paths
         ]
     else:
@@ -145,9 +143,15 @@ def main():
         for s in sessions:
             out = s.run(["output"], {"input": x_numpy})[0]  # shape (1,1,D,H,W)
             preds.append(out)
+            del out
+            torch.cuda.empty_cache()
             gc.collect()
 
         avg = np.mean(preds, axis=0)  # (1,1,D,H,W)
+
+        del preds
+        torch.cuda.empty_cache()
+        gc.collect()
         thr = conf.train_par.eval_threshold
         mask = (avg[0, 0] >= thr).astype(np.uint8)
 
