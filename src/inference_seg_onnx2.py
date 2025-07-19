@@ -112,18 +112,12 @@ def main():
         raise RuntimeError(f"No ONNX models found in {args.onnx_dir}")
     # if cuda is available, use CUDAExecutionProvider
     if torch.cuda.is_available():
+        providers = ["CUDAExecutionProvider"]
         print("Using CUDAExecutionProvider for ONNX inference")
-        sessions = [
-            ort.InferenceSession(p, providers=["CUDAExecutionProvider"])
-            for p in onnx_paths
-        ]
     else:
+        providers = ["CPUExecutionProvider"]
         # Use CPUExecutionProvider for non-MPS devices
         print("Using CPUExecutionProvider for ONNX inference")
-        sessions = [
-            ort.InferenceSession(p, providers=["CPUExecutionProvider"])
-            for p in onnx_paths
-        ]
 
     ds = VideoInferenceDataset(
         args.input_dir, transform=transforms.Compose([Rescale((128, 128)), ToTensor()])
@@ -143,7 +137,7 @@ def main():
 
         preds = []
         for model_path in onnx_paths:
-            s = ort.InferenceSession(model_path, providers=["CUDAExecutionProvider"])
+            s = ort.InferenceSession(model_path, providers=providers)
             out = s.run(["output"], {"input": x_numpy})[0]
             preds.append(out)
             del s, out
