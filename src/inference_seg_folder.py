@@ -2,12 +2,13 @@
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+from matplotlib import pyplot as plt
 import torchio as tio
 import glob
 import argparse
 import yaml
 from addict import Dict
-
+import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -42,7 +43,7 @@ def parse_args():
         "-i",
         # required=True,
         help="folder containing your .mp4 test videos",
-        default="/Users/emilio/Library/CloudStorage/Box-Box/GitHub/Breast-AI-model/src/1",
+        default="/Users/emilio/Library/CloudStorage/Box-Box/GitHub/Breast-AI-model/src/videos",
         # default="/Users/emilio/Library/CloudStorage/Box-Box/GitHub/Breast-AI-model/src/P4/video",
     )
     p.add_argument(
@@ -50,6 +51,13 @@ def parse_args():
         "-o",
         default="./predictions",
         help="where to save predicted masks (.npy)",
+    )
+
+    p.add_argument(
+        "--out_overlay_dir",
+        "-ov",
+        default="./overlays",
+        help="where to save overlay videos",
     )
     p.add_argument(
         "--batch_size", "-b", type=int, default=1, help="batch size for inference"
@@ -80,15 +88,60 @@ class VideoInferenceDataset(Dataset):
             vid_rgb2gray[0, i, :, :] = np.expand_dims(
                 np.dot(video[i], [0.2989, 0.5870, 0.1140]), axis=0
             )
+        print(vid_rgb2gray.shape)
 
-        # img = tio.ScalarImage(tensor=vid_rgb2gray)
+        img = tio.ScalarImage(tensor=vid_rgb2gray)
 
-        # img = tio.Resize((128, 128, 128))(img)  # resize to (1,D,H,W)
-        # vid_rgb2gray = img.data.numpy()  # shape (1,D,H,W)
+        img = tio.Resize((128, 128, 128))(img)  # resize to (1,D,H,W)
+        vid_rgb2gray = img.data.numpy()  # shape (1,D,H,W)
         sample = {"image": vid_rgb2gray, "filename": os.path.basename(path)}
         if self.transform:
             sample = self.transform(sample)
         return sample
+
+
+def save_overlay(video_path, out_overlay_dir, mask):
+    os.makedirs(out_overlay_dir, exist_ok=True)
+    # Leer vídeo
+    video = skvideo.io.vread(video_path)  # shape: (D, H, W, 3)
+    # Copia para la salida
+    overlay = video.copy().astype(np.uint8)
+
+    D, H, W, _ = overlay.shape
+    # Redimensionar la máscara (nota que cv2.resize espera (W, H))
+    # mask_resized = np.stack(
+    #     [
+    #         cv2.resize(m.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST)
+    #         for m in mask
+    #     ],
+    #     axis=0,
+    # )  # shape: (D, H, W)
+
+    mask_resized = tio.LabelMap(tensor=np.expand_dims(mask, axis=0))  # shape (1,D,H,W)
+
+    mask_resized = tio.Resize((D, H, W))(mask_resized)  # resize to (1,D,H,W)
+    mask_resized = np.squeeze(mask_resized.data.numpy())  # shape (1,D,H,W)
+
+    # Construir vídeo resultante frame a frame
+    out_frames = []
+    for i in range(D):
+        frame = overlay[i]  # (H, W, 3)
+        mask_i = mask_resized[i] * 255  # (H, W), valores 0 o 255
+
+        # Haz un “mapa de color” rojo de la máscara:
+        colored_mask = np.zeros_like(frame)
+        colored_mask[..., 0] = mask_i  # canal rojo en OpenCV es el índice 2 (BGR)
+
+        # Mezcla: 70% vídeo original, 30% máscara roja
+        blended = cv2.addWeighted(frame, 0.7, colored_mask, 0.3, 0)
+
+        out_frames.append(blended)
+
+    out_array = np.stack(out_frames, axis=0)  # (D, H, W, 3)
+    # Escribe el vídeo con la misma resolución y FPS original
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_name = f"{base}_overlay.mp4"
+    skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
 
 
 def main():
@@ -134,7 +187,6 @@ def main():
         ).to(device)
         m.eval()
         models.append(m)
-        break
 
     # — inference & soft‐ensemble —
     all_probs = []  # will be list of tensors [N,1,D,H,W] per fold
@@ -161,8 +213,12 @@ def main():
     averaged = avg.numpy()
     for i, fname in enumerate(names):
         mask = (averaged[i, 0] >= thr).astype(np.uint8)
-        out_name = os.path.splitext(fname)[0] + "_mask.npy"
+        out_name = os.path.splitext(fname)[0] + "_masken.npy"
         np.save(os.path.join(args.out_dir, out_name), mask)
+        video_path = os.path.join(args.input_dir, fname)
+        save_overlay(video_path, args.out_overlay_dir, mask)
+
+        # save_overlay(args.input_dir, names[i], args.out_overlay_dir, mask)
 
     print(f"Saved {len(names)} masks → {args.out_dir}")
 
