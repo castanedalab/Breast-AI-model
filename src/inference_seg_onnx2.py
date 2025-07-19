@@ -23,7 +23,7 @@ def parse_args():
     p.add_argument(
         "--onnx_dir",
         "-k",
-        default="./onnx_models_quantized",
+        default="./onnx_models",
         help="Folder with model_fold*.onnx",
     )
     p.add_argument(
@@ -97,7 +97,7 @@ def save_overlay(video_path, out_overlay_dir, mask):
 
     out_array = np.stack(out_frames, axis=0)
     base = os.path.splitext(os.path.basename(video_path))[0]
-    out_name = f"{base}_overlay_quantized.mp4"
+    out_name = f"{base}_overlay.mp4"
     skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
 
 
