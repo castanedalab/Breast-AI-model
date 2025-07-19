@@ -8,3 +8,4 @@
 /src/predictions/*
 /src/overlays/*
 /src/videos/*
+/src/onnx_models/*
