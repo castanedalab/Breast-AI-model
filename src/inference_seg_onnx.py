@@ -21,7 +21,10 @@ def parse_args():
     p = argparse.ArgumentParser("ONNX ensemble inference for 3D segmentation")
     p.add_argument("--config", "-c", default="default_config_train_seg.yaml")
     p.add_argument(
-        "--onnx_dir", "-k", default="./onnx_models", help="Folder with model_fold*.onnx"
+        "--onnx_dir",
+        "-k",
+        default="./onnx_models",
+        help="Folder with model_fold*.onnx",
     )
     p.add_argument(
         "--input_dir", "-i", default="./videos", help="Folder with test .mp4 videos"
@@ -112,22 +115,18 @@ def main():
         raise RuntimeError(f"No ONNX models found in {args.onnx_dir}")
     # if cuda is available, use CUDAExecutionProvider
     if torch.cuda.is_available():
+        providers = ["CUDAExecutionProvider"]
         print("Using CUDAExecutionProvider for ONNX inference")
-        sessions = [
-            ort.InferenceSession(p, providers=["CUDAExecutionProvider"])
-            for p in onnx_paths
-        ]
     else:
+        providers = ["CPUExecutionProvider"]
         # Use CPUExecutionProvider for non-MPS devices
         print("Using CPUExecutionProvider for ONNX inference")
-        sessions = [
-            ort.InferenceSession(p, providers=["CPUExecutionProvider"])
-            for p in onnx_paths
-        ]
 
     ds = VideoInferenceDataset(
-        args.input_dir, transform=transforms.Compose([Rescale((128, 128)), ToTensor()])
+        args.input_dir, transform=transforms.Compose([ToTensor()])
     )
+
+    onnx_paths = sorted(glob.glob(os.path.join(args.onnx_dir, "*.onnx")))
 
     for vid_idx, path in enumerate(ds.files):
         fname = os.path.basename(path)
@@ -140,18 +139,18 @@ def main():
         x_numpy = x.numpy()
 
         preds = []
-        for s in sessions:
-            out = s.run(["output"], {"input": x_numpy})[0]  # shape (1,1,D,H,W)
+        for model_path in onnx_paths:
+            s = ort.InferenceSession(model_path, providers=providers)
+            out = s.run(["output"], {"input": x_numpy})[0]
             preds.append(out)
-            del out
+            del s, out
             torch.cuda.empty_cache()
             gc.collect()
 
-        avg = np.mean(preds, axis=0)  # (1,1,D,H,W)
-
+        avg = np.mean(preds, axis=0)
         del preds
         torch.cuda.empty_cache()
-        gc.collect()
+
         thr = conf.train_par.eval_threshold
         mask = (avg[0, 0] >= thr).astype(np.uint8)
 
@@ -159,7 +158,6 @@ def main():
         np.save(os.path.join(args.out_dir, out_name), mask)
         save_overlay(path, args.out_overlay_dir, mask)
         print(f"[✓] {fname} procesado ({vid_idx + 1}/{len(ds)})")
-
     print(f"\n✅ Inference completa. Resultados en: {args.out_dir}")
 
     print(f"Tiempo total: {time.time() - start_time:.2f} segundos")
