@@ -99,6 +99,41 @@ def save_overlay(video_path, out_overlay_dir, mask):
     skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), np.stack(frames, 0))
 
 
+def save_three_panel(video_path, out_overlay_dir, mask):
+    os.makedirs(out_overlay_dir, exist_ok=True)
+    # read & crop video to (D, H, W, C)
+    video = skvideo.io.vread(video_path)
+    video = cropper(video, crop_size=912)
+    D, H, W, C = video.shape
+
+    # prepare mask: (D, H, W), values 0/1
+    mask_map = tio.LabelMap(tensor=np.expand_dims(mask, axis=0))
+    mask_map = tio.Resize((D, H, W))(mask_map)
+    mask_resized = np.squeeze(mask_map.data.numpy())  # shape (D,H,W)
+
+    out_frames = []
+    for i in range(D):
+        orig = video[i].astype(np.uint8)  # (H,W,3)
+
+        # panel 2: mask in white on black, 3‑channel
+        m = (mask_resized[i] * 255).astype(np.uint8)  # (H,W)
+        mask_rgb = np.stack([m, m, m], axis=-1)  # (H,W,3)
+
+        # panel 3: overlay in red over orig
+        colored_mask = np.zeros_like(orig)
+        colored_mask[..., 2] = m  # red channel
+        overlay = cv2.addWeighted(orig, 0.7, colored_mask, 0.3, 0)
+
+        # concatenate panels horizontally
+        three_panel = np.concatenate([orig, mask_rgb, overlay], axis=1)
+        out_frames.append(three_panel)
+
+    out_array = np.stack(out_frames, axis=0)  # (D, H, 3*W, 3)
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_name = f"{base}_overlay.mp4"
+    skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
+
+
 def main():
     args = parse_args()
     conf = Dict(yaml.safe_load(open(args.config)))
@@ -150,7 +185,7 @@ def main():
                 ),
                 mask,
             )
-            save_overlay(path, ov_dir, mask)
+            save_three_panel(path, ov_dir, mask)
             print(f"[{vid_idx + 1}/{len(ds)}] {os.path.basename(path)} ✓")
     print("\n✅ ¡Batch completo!")
 
