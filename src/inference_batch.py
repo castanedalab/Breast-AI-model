@@ -121,7 +121,7 @@ def save_three_panel(video_path, out_overlay_dir, mask):
 
         # panel 3: overlay in red over orig
         colored_mask = np.zeros_like(orig)
-        colored_mask[..., 2] = m  # red channel
+        colored_mask[..., 0] = m  # red channel
         overlay = cv2.addWeighted(orig, 0.7, colored_mask, 0.3, 0)
 
         # concatenate panels horizontally
