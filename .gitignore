@@ -10,6 +10,7 @@
 /src/predictions_rc2/*
 /src/overlays/*
 /src/overlays_crop/*
+/src/overlays_rc1/*
 /src/overlays_rc2/*
 /src/onnx_models/*
 /src/onnx_models_preprocessed/*

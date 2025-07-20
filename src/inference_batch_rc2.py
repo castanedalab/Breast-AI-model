@@ -248,7 +248,7 @@ def main():
         patient_id = os.path.basename(patient_dir)
 
         # entra en "VSI 8 Clips"
-        clips_dir = os.path.join(patient_dir, "VSI 8 Clips")
+        clips_dir = os.path.join(patient_dir, "8 VSI Clips")
         if not os.path.isdir(clips_dir):
             print(f"⚠️  Skipping '{patient_id}': no existe '{clips_dir}'")
             continue
