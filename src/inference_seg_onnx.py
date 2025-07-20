@@ -15,6 +15,13 @@ import gc
 import time
 from transforms_seg import ToTensor, Rescale
 import time
+import skimage.morphology as skm
+from skimage.morphology import disk, binary_dilation
+from scipy.ndimage import binary_fill_holes
+from skimage import measure
+import random
+
+random.seed(42)  # For reproducibility
 
 
 def parse_args():
@@ -27,11 +34,107 @@ def parse_args():
         help="Folder with model_fold*.onnx",
     )
     p.add_argument(
-        "--input_dir", "-i", default="./nomass", help="Folder with test .mp4 videos"
+        "--input_dir", "-i", default="./videos", help="Folder with test .mp4 videos"
     )
     p.add_argument("--out_dir", "-o", default="./predictions")
-    p.add_argument("--out_overlay_dir", "-ov", default="./overlays")
+    p.add_argument("--out_overlay_dir", "-ov", default="./overlays_crop")
     return p.parse_args()
+
+
+def remove_B_marker(
+    video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_size=100, dilate_rad=8
+):
+    D, H, W, C = video.shape
+
+    # 1) ROI top‑left
+    rh, rw = int(H * roi_frac[0]), int(W * roi_frac[1])
+    frame = video[frame_idx]
+    roi = frame[:rh, :rw]
+
+    # 2) Binarizo brillo alto
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    _, bw = cv2.threshold(gray, thr_val, 255, cv2.THRESH_BINARY)
+
+    # 3) Limpio ruido
+    mask_bin = skm.remove_small_objects(bw > 0, min_size=min_size)
+    mask_bin = skm.remove_small_holes(mask_bin, area_threshold=min_size)
+
+    # 4) Etiqueto y elijo blob más cercano a (0,0)
+    labels = measure.label(mask_bin)
+    props = measure.regionprops(labels)
+    if not props:
+        return video.copy()
+    best = min(props, key=lambda p: p.centroid[0] ** 2 + p.centroid[1] ** 2)
+    blob = labels == best.label
+
+    # --- NUEVO PASO: relleno los “agujeros” interiores ---
+    blob_filled = binary_fill_holes(blob)
+
+    # 5) Dilato un poco para sobrecubrir el círculo
+    blob_dil = skm.dilation(blob_filled, footprint=disk(dilate_rad))
+
+    # 6) Construyo máscara full-frame y expando a 3D
+    full = np.zeros((H, W), bool)
+    full[:rh, :rw] = blob_dil
+    mask3d = full[None, :, :, None]
+    mask3d = np.repeat(mask3d, D, axis=0)
+    mask3d = np.repeat(mask3d, 3, axis=3)
+
+    # 7) Pongo a cero esa región en todo el vídeo
+    clean = video.copy()
+    clean[mask3d] = 0
+    return clean
+
+
+def process_video_and_get_crop(
+    video, min_obj_size=1000, hole_size=1000, opening_radius=20
+):
+    """
+    1) Lee el video
+    2) Toma dos restas aleatorias de frames
+    3) Une, limpia, mantiene el objeto más grande
+    4) Devuelve la máscara limpia, la caja de recorte y el frame recortado
+    """
+    # 1) Abre el video
+    video = video[:, :, 0:-50, :]
+    D, H, W, C = video.shape
+
+    # 2) Escoge tres índices aleatorios y crea dos máscaras por resta
+    ref_idx, idx1, idx2 = random.sample(range(D), 3)
+    # convierto a float32 para la resta
+    f_ref = video[ref_idx].astype(np.float32)
+    f1 = video[idx1].astype(np.float32)
+    f2 = video[idx2].astype(np.float32)
+    diff1 = (f_ref - f1).astype(np.uint8)
+    diff2 = (f_ref - f2).astype(np.uint8)
+
+    # 3) Pasa a gris y binariza
+    gray1 = cv2.cvtColor(diff1, cv2.COLOR_RGB2GRAY)
+    gray2 = cv2.cvtColor(diff2, cv2.COLOR_RGB2GRAY)
+    m1 = gray1 > 0
+    m2 = gray2 > 0
+
+    # 4) Combina máscaras y limpia pequeños objetos y agujeros
+    mask = np.logical_or(m1, m2)
+    # mask = np.logical_or(mask, m3)
+    # erode para eliminar ruido
+    mask = skm.binary_erosion(mask)
+    mask = skm.remove_small_objects(mask, min_size=min_obj_size)
+    mask = skm.remove_small_holes(mask, area_threshold=hole_size)
+    mask = skm.opening(mask)
+
+    # 5) Etiqueta componentes y elige el más grande
+    labels = measure.label(mask)
+    props = measure.regionprops(labels)
+    if not props:
+        raise RuntimeError("No se encontró ningún objeto tras la limpieza.")
+
+    largest = max(props, key=lambda p: p.area)
+    minr, minc, maxr, maxc = largest.bbox
+
+    # 6) Recorta la máscara y el frame de referencia
+    cropped_video = video[:, minr:maxr, minc:maxc, :]
+    return cropped_video, (minr, maxr, minc, maxc)
 
 
 def cropper(video, crop_size=912):
@@ -77,7 +180,10 @@ class VideoInferenceDataset(Dataset):
         path = self.files[idx]
         video = skvideo.io.vread(path)
 
-        video = cropper(video, crop_size=912)
+        video, (minr, maxr, minc, maxc) = process_video_and_get_crop(video)
+        video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
+        # video = cropper(video, crop_size=912)
 
         vid_rgb2gray = np.zeros(
             (1, video.shape[0], video.shape[1], video.shape[2]), dtype=np.uint8
@@ -90,16 +196,31 @@ class VideoInferenceDataset(Dataset):
         img = tio.ScalarImage(tensor=vid_rgb2gray)
         img = tio.Resize((128, 128, 128))(img)
         vid_rgb2gray = img.data.numpy()
-        sample = {"image": vid_rgb2gray, "filename": os.path.basename(path)}
-        if self.transform:
-            sample = self.transform(sample)
-        return sample
+        # minr, maxr, minc, maxc = 0, 128, 0, 128  # Placeholder for crop coords
+        crop_coords = (minr, maxr, minc, maxc)
+        # sample = {
+        #     "image": vid_rgb2gray,
+        #     "filename": os.path.basename(path),
+        #     "crop_coords": (minr, maxr, minc, maxc),
+        # }
+        return {
+            "image": vid_rgb2gray,  # numpy array
+            "filename": os.path.basename(path),
+            "crop_coords": crop_coords,
+        }
+
+        # if self.transform:
+        #     sample = self.transform(sample)
+        # return sample
 
 
 def save_overlay(video_path, out_overlay_dir, mask):
     os.makedirs(out_overlay_dir, exist_ok=True)
     video = skvideo.io.vread(video_path)
-    video = cropper(video, crop_size=912)
+    video = video[:, :, 0:-50, :]
+    video, (minr, maxr, minc, maxc) = process_video_and_get_crop(video)
+    video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
     # D, H, W, _ = video.shape
     # center_x, center_y = W // 2, H // 2
     # video = video[
@@ -122,6 +243,50 @@ def save_overlay(video_path, out_overlay_dir, mask):
         out_frames.append(blended)
 
     out_array = np.stack(out_frames, axis=0)
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_name = f"{base}_overlay.mp4"
+    skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
+
+
+def save_three_panel(video_path, out_overlay_dir, mask, crop_coords):
+    os.makedirs(out_overlay_dir, exist_ok=True)
+    # read & crop video to (D, H, W, C)
+    video = skvideo.io.vread(video_path)
+    video, _ = process_video_and_get_crop(video)
+    video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
+    # video = video[:, :, 0:-50, :]
+    # video = video[
+    #     :, crop_coords[0] : crop_coords[1], crop_coords[2] : crop_coords[3], :
+    # ]
+
+    # video = cropper(video, crop_size=912)
+    # video = process_video_and_get_crop(video)
+    D, H, W, C = video.shape
+
+    # prepare mask: (D, H, W), values 0/1
+    mask_map = tio.LabelMap(tensor=np.expand_dims(mask, axis=0))
+    mask_map = tio.Resize((D, H, W))(mask_map)
+    mask_resized = np.squeeze(mask_map.data.numpy())  # shape (D,H,W)
+
+    out_frames = []
+    for i in range(D):
+        orig = video[i].astype(np.uint8)  # (H,W,3)
+
+        # panel 2: mask in white on black, 3‑channel
+        m = (mask_resized[i] * 255).astype(np.uint8)  # (H,W)
+        mask_rgb = np.stack([m, m, m], axis=-1)  # (H,W,3)
+
+        # panel 3: overlay in red over orig
+        colored_mask = np.zeros_like(orig)
+        colored_mask[..., 0] = m  # red channel
+        overlay = cv2.addWeighted(orig, 0.7, colored_mask, 0.3, 0)
+
+        # concatenate panels horizontally
+        three_panel = np.concatenate([orig, mask_rgb, overlay], axis=1)
+        out_frames.append(three_panel)
+
+    out_array = np.stack(out_frames, axis=0)  # (D, H, 3*W, 3)
     base = os.path.splitext(os.path.basename(video_path))[0]
     out_name = f"{base}_overlay.mp4"
     skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
@@ -158,8 +323,9 @@ def main():
         fname = os.path.basename(path)
         sample = ds[vid_idx]
         x = sample["image"] if isinstance(sample, dict) else sample
+        (minr, maxr, minc, maxc) = sample["crop_coords"]
         if not torch.is_tensor(x):
-            x = torch.as_tensor(x)
+            x = torch.as_tensor(x).float()
         if x.ndim == 4:
             x = x.unsqueeze(0)
         x_numpy = x.numpy()
@@ -182,7 +348,7 @@ def main():
 
         out_name = os.path.splitext(fname)[0] + "_masken.npy"
         np.save(os.path.join(args.out_dir, out_name), mask)
-        save_overlay(path, args.out_overlay_dir, mask)
+        save_three_panel(path, args.out_overlay_dir, mask, (minr, maxr, minc, maxc))
         print(f"[✓] {fname} procesado ({vid_idx + 1}/{len(ds)})")
     print(f"\n✅ Inference completa. Resultados en: {args.out_dir}")
 

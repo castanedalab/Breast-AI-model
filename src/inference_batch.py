@@ -13,7 +13,14 @@ import skvideo.io
 import onnxruntime as ort
 import gc
 import time
+import skimage.morphology as skm
+from skimage import measure
+from scipy.ndimage import binary_fill_holes
+from skimage.morphology import disk
+import random
 from transforms_seg import ToTensor, Rescale
+
+random.seed(42)  # For reproducibility
 
 
 def parse_args():
@@ -42,18 +49,100 @@ def parse_args():
     return p.parse_args()
 
 
-def cropper(video, crop_size=912):
-    D, H, W, _ = video.shape
-    half = crop_size // 2
-    cy, cx = H // 2, W // 2
-    y1, x1 = max(0, cy - half), max(0, cx - half)
-    y2, x2 = min(H, cy + half), min(W, cx + half)
-    # ajusta si sobresale
-    if y2 - y1 < crop_size:
-        y1, y2 = H - crop_size, H
-    if x2 - x1 < crop_size:
-        x1, x2 = W - crop_size, W
-    return video[:, y1 : y1 + crop_size, x1 : x1 + crop_size, :]
+def remove_B_marker(
+    video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_size=100, dilate_rad=8
+):
+    D, H, W, C = video.shape
+
+    # 1) ROI top‑left
+    rh, rw = int(H * roi_frac[0]), int(W * roi_frac[1])
+    frame = video[frame_idx]
+    roi = frame[:rh, :rw]
+
+    # 2) Binarizo brillo alto
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    _, bw = cv2.threshold(gray, thr_val, 255, cv2.THRESH_BINARY)
+
+    # 3) Limpio ruido
+    mask_bin = skm.remove_small_objects(bw > 0, min_size=min_size)
+    mask_bin = skm.remove_small_holes(mask_bin, area_threshold=min_size)
+
+    # 4) Etiqueto y elijo blob más cercano a (0,0)
+    labels = measure.label(mask_bin)
+    props = measure.regionprops(labels)
+    if not props:
+        return video.copy()
+    best = min(props, key=lambda p: p.centroid[0] ** 2 + p.centroid[1] ** 2)
+    blob = labels == best.label
+
+    # --- NUEVO PASO: relleno los “agujeros” interiores ---
+    blob_filled = binary_fill_holes(blob)
+
+    # 5) Dilato un poco para sobrecubrir el círculo
+    blob_dil = skm.dilation(blob_filled, footprint=disk(dilate_rad))
+
+    # 6) Construyo máscara full-frame y expando a 3D
+    full = np.zeros((H, W), bool)
+    full[:rh, :rw] = blob_dil
+    mask3d = full[None, :, :, None]
+    mask3d = np.repeat(mask3d, D, axis=0)
+    mask3d = np.repeat(mask3d, 3, axis=3)
+
+    # 7) Pongo a cero esa región en todo el vídeo
+    clean = video.copy()
+    clean[mask3d] = 0
+    return clean
+
+
+def process_video_and_get_crop(
+    video, min_obj_size=1000, hole_size=1000, opening_radius=20
+):
+    """
+    1) Lee el video
+    2) Toma dos restas aleatorias de frames
+    3) Une, limpia, mantiene el objeto más grande
+    4) Devuelve la máscara limpia, la caja de recorte y el frame recortado
+    """
+    # 1) Abre el video
+    video = video[:, :, 0:-50, :]
+    D, H, W, C = video.shape
+
+    # 2) Escoge tres índices aleatorios y crea dos máscaras por resta
+    ref_idx, idx1, idx2 = random.sample(range(D), 3)
+    # convierto a float32 para la resta
+    f_ref = video[ref_idx].astype(np.float32)
+    f1 = video[idx1].astype(np.float32)
+    f2 = video[idx2].astype(np.float32)
+    diff1 = (f_ref - f1).astype(np.uint8)
+    diff2 = (f_ref - f2).astype(np.uint8)
+
+    # 3) Pasa a gris y binariza
+    gray1 = cv2.cvtColor(diff1, cv2.COLOR_RGB2GRAY)
+    gray2 = cv2.cvtColor(diff2, cv2.COLOR_RGB2GRAY)
+    m1 = gray1 > 0
+    m2 = gray2 > 0
+
+    # 4) Combina máscaras y limpia pequeños objetos y agujeros
+    mask = np.logical_or(m1, m2)
+    # mask = np.logical_or(mask, m3)
+    # erode para eliminar ruido
+    mask = skm.binary_erosion(mask)
+    mask = skm.remove_small_objects(mask, min_size=min_obj_size)
+    mask = skm.remove_small_holes(mask, area_threshold=hole_size)
+    mask = skm.opening(mask)
+
+    # 5) Etiqueta componentes y elige el más grande
+    labels = measure.label(mask)
+    props = measure.regionprops(labels)
+    if not props:
+        raise RuntimeError("No se encontró ningún objeto tras la limpieza.")
+
+    largest = max(props, key=lambda p: p.area)
+    minr, minc, maxr, maxc = largest.bbox
+
+    # 6) Recorta la máscara y el frame de referencia
+    cropped_video = video[:, minr:maxr, minc:maxc, :]
+    return cropped_video
 
 
 class VideoInferenceDataset(Dataset):
@@ -69,7 +158,9 @@ class VideoInferenceDataset(Dataset):
     def __getitem__(self, idx):
         path = self.files[idx]
         video = skvideo.io.vread(path)
-        video = cropper(video, 912)
+        video = process_video_and_get_crop(video)
+        video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
         # rgb→gray
         vid = np.zeros((1, *video.shape[:3]), dtype=np.uint8)
         for i in range(video.shape[0]):
@@ -81,29 +172,13 @@ class VideoInferenceDataset(Dataset):
         return self.transform(sample) if self.transform else sample
 
 
-def save_overlay(video_path, out_overlay_dir, mask):
-    os.makedirs(out_overlay_dir, exist_ok=True)
-    video = skvideo.io.vread(video_path)
-    video = cropper(video, 912)
-    D, H, W, _ = video.shape
-    mask3d = tio.LabelMap(tensor=mask[None])
-    mask3d = tio.Resize((D, H, W))(mask3d).data.numpy().squeeze()
-    frames = []
-    for i in range(D):
-        frm = video[i].astype(np.uint8)
-        m = (mask3d[i] * 255).astype(np.uint8)
-        cm = np.zeros_like(frm)
-        cm[..., 0] = m
-        frames.append(cv2.addWeighted(frm, 0.7, cm, 0.3, 0))
-    out_name = os.path.splitext(os.path.basename(video_path))[0] + "_overlay.mp4"
-    skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), np.stack(frames, 0))
-
-
 def save_three_panel(video_path, out_overlay_dir, mask):
     os.makedirs(out_overlay_dir, exist_ok=True)
     # read & crop video to (D, H, W, C)
     video = skvideo.io.vread(video_path)
-    video = cropper(video, crop_size=912)
+    video = process_video_and_get_crop(video)
+    video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
     D, H, W, C = video.shape
 
     # prepare mask: (D, H, W), values 0/1
