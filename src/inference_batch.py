@@ -24,7 +24,7 @@ def parse_args():
     p.add_argument(
         "--input_root",
         "-i",
-        default="./nomass",
+        default="/data/DATA/private_data/Breast AI study mp4",
         help="Carpeta que contiene subcarpetas de pacientes",
     )
     p.add_argument(
