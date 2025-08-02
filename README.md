@@ -111,7 +111,7 @@ python src/inference_seg.py \
 
 ---
 
-🧠 Final Inference (Segmentation + Classification)
+## 🧠 Final Inference (Segmentation + Classification)
 
 To run the full inference pipeline (segmentation + classification) using ONNX models, use `inference_pipeline_onnx.py`:
 
