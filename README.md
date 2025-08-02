@@ -111,6 +111,31 @@ python src/inference_seg.py \
 
 ---
 
+🧠 Final Inference (Segmentation + Classification)
+
+To run the full inference pipeline (segmentation + classification) using ONNX models, use `inference_pipeline_onnx.py`:
+
+```bash
+python inference_pipeline_onnx.py \
+  --seg_config "default_config_train_seg.yaml" \
+  --onnx_dir "D:/Research Projects/Breast-AI-model/Segmentacion_onnx" \
+  --video_dir "D:/Research Projects/Breast-AI-model/Test/40-4" \
+  --out_mask_dir "D:/Research Projects/Breast-AI-model/Predictions/40-4" \
+  --cls_onnx_paths \
+    "D:/Research Projects/Breast-AI-model/Classification_onnx/classifier_0_densenet.onnx" \
+    "D:/Research Projects/Breast-AI-model/Classification_onnx/classifier_1_mobilenet.onnx" \
+    "D:/Research Projects/Breast-AI-model/Classification_onnx/classifier_2_vgg16.onnx" \
+  --n_samples 10 \
+  --tol 0.5 \
+  --video_ext ".mp4" \
+  --cls_batch_size 1 \
+  --output_csv "resultado_ensemble_40-4.csv"
+```
+
+---
+
+---
+
 ## 📋 Dataset Organization
 
 1. **CSV mode**: Two columns in your CSV: `wsi` (file path) and optionally `label`. The `DataModule` reads these to form train/val/test splits.
