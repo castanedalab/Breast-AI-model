@@ -64,7 +64,7 @@ class MyModel(L.LightningModule):
         elif self.loss_name == "CrossEntropyLoss":
             # new approach for 2-class: pred.shape = [batch_size, 2]
             # labels.shape = [batch_size]
-            from model.loss import CrossEntropyLoss
+            from loss_clasi import CrossEntropyLoss
             class_weights = torch.FloatTensor([0.9, 1.5]).cuda()  # Ajusta los pesos
             loss_fn = nn.CrossEntropyLoss(weight=class_weights,label_smoothing=0.1)
             return loss_fn(pred, label)

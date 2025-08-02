@@ -5,9 +5,27 @@ from model_lightning_clasi import MyModelMulticlass
 import pandas as pd
 from addict import Dict
 from collections import Counter
+import onnxruntime as ort
+
+def predict_with_model_onnx(session, dataloader, device):
+    predictions = []
+    input_name = session.get_inputs()[0].name
+    output_name = session.get_outputs()[0].name
+    for batch in dataloader:
+        images = batch[0].numpy().astype(np.float32)
+        ort_inputs = {input_name: images}
+        ort_outs = session.run([output_name], ort_inputs)
+        predictions.append(ort_outs[0])
+    return np.vstack(predictions)
+
+def load_model_onnx(onnx_path, model_name=None):
+    providers = ["CPUExecutionProvider"]
+    session = ort.InferenceSession(onnx_path, providers=providers)
+    return session, "cpu"
 
 def load_model(ckpt_path, model_name="resnet"):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cpu")
     model_opts = Dict({'name': model_name})
     train_par   = Dict({'eval_threshold': 0.5, 'loss_opts': {'name': 'CrossEntropyLoss'}})
     model = MyModelMulticlass(model_opts=model_opts, train_par=train_par)
@@ -48,25 +66,40 @@ def ensemble_predictions(models, dataloader, device, method="average"):
 def summarize_ensemble_predictions(predictions):
     """
     Recibe:
-      predictions: dict { patient_id: [label1, label2, ..., labelN] }
+      predictions: dict { patient_id: {
+                                    'votes': [label1, ..., labelN],
+                                    'frame_paths': [ruta1, ..., rutaN] }
+
     Devuelve:
       DataFrame con columnas:
         - patient_id
-        - final_label: voto mayoritario
+        - final_label: voto mayoritario (o "Biopsy" si >= 4 votos)
         - agreement: fracción de votos que obtuvo el label ganador
         - votes: lista completa de votos
+        - frame_paths: lista de rutas a los frames usados
     """
     rows = []
-    for pid, votes in predictions.items():
+    for pid, data in predictions.items():
+        votes = data["votes"]
+        paths = data["frame_paths"]
         cnt = Counter(votes)
-        final_label, count = cnt.most_common(1)[0]
+
+        # Regla extra: si hay al menos 4 votos "Biopsy", forzar ese label
+        if cnt["Biopsy"] >= 4:
+            final_label = "Biopsy"
+            count = cnt["Biopsy"]
+        else:
+            final_label, count = cnt.most_common(1)[0]
+
         agreement = count / len(votes)
         rows.append({
             "patient_id": pid,
             "final_label": final_label,
             "agreement": agreement,
-            "votes": votes
+            "votes": votes,
+            "frame_paths": paths
         })
+
     df = pd.DataFrame(rows)
     return df.sort_values("agreement", ascending=False)
 

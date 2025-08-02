@@ -1,0 +1,304 @@
+#!/usr/bin/env python
+"""
+Pipeline de inferencia completo:
+  1) Segmentación 3D usando modelos ONNX (ensemble k-fold)
+  2) Clasificación frame-wise usando modelos PyTorch (ResNet, etc.)
+
+Incluye:
+- Preprocesamiento completo del video: limpieza de marcador, recorte, resize
+- Overlay opcional
+- Exportación opcional de máscaras .npy
+"""
+
+import warnings
+warnings.filterwarnings("ignore", message="Failed to load image Python extension", module="torchvision.io.image")
+
+# === Librerías estándar y de procesamiento ===
+import os
+import glob
+import argparse
+import yaml
+import numpy as np
+import torch
+import onnxruntime as ort
+import cv2
+import torchio as tio
+#import skvideo.io
+import random
+import skimage.morphology as skm
+from skimage.morphology import disk
+from scipy.ndimage import binary_fill_holes
+from skimage import measure
+from addict import Dict
+from collections import Counter
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms as cls_transforms
+import matplotlib.pyplot as plt
+
+# === Utilidades auxiliares de segmentación y clasificación ===
+from utils_seg import select_candidate_frames, load_frames_from_video, vread
+from utils_clasi import load_model, predict_with_model, summarize_ensemble_predictions, load_model_onnx, predict_with_model_onnx
+
+
+# Mapa numérico a etiquetas para clasificación
+LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
+
+# === Función para remover el marcador brillante tipo "B" ===
+def remove_B_marker(video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_size=100, dilate_rad=8):
+    """
+    Detecta y enmascara el marcador brillante (por ejemplo letra "B") en esquina superior izquierda
+    """
+    D, H, W, C = video.shape
+    rh, rw = int(H * roi_frac[0]), int(W * roi_frac[1])
+    roi = video[frame_idx][:rh, :rw]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    _, bw = cv2.threshold(gray, thr_val, 255, cv2.THRESH_BINARY)
+    mask_bin = skm.remove_small_objects(bw > 0, min_size=min_size)
+    mask_bin = skm.remove_small_holes(mask_bin, area_threshold=min_size)
+    labels = measure.label(mask_bin)
+    props = measure.regionprops(labels)
+    if not props:
+        return video.copy()
+    best = min(props, key=lambda p: p.centroid[0] ** 2 + p.centroid[1] ** 2)
+    blob = labels == best.label
+    blob_filled = binary_fill_holes(blob)
+    blob_dil = skm.dilation(blob_filled, footprint=disk(dilate_rad))
+    full = np.zeros((H, W), bool)
+    full[:rh, :rw] = blob_dil
+    mask3d = np.repeat(np.repeat(full[None, :, :, None], D, axis=0), 3, axis=3)
+    clean = video.copy()
+    clean[mask3d] = 0
+    return clean
+
+# === Función para detectar zona activa mediante diferencia de frames ===
+def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
+    """
+    Detecta la región activa (ROI) a partir de diferencias entre frames y la recorta
+    """
+    video = video[:, :, 0:-50, :]  # elimina borde derecho (artefacto)
+    D, H, W, _ = video.shape
+    ref_idx, idx1, idx2 = random.sample(range(D), 3)
+    diff1 = (video[ref_idx].astype(np.float32) - video[idx1].astype(np.float32)).astype(np.uint8)
+    diff2 = (video[ref_idx].astype(np.float32) - video[idx2].astype(np.float32)).astype(np.uint8)
+    gray1 = cv2.cvtColor(diff1, cv2.COLOR_RGB2GRAY)
+    gray2 = cv2.cvtColor(diff2, cv2.COLOR_RGB2GRAY)
+    mask = np.logical_or(gray1 > 0, gray2 > 0)
+    mask = skm.binary_erosion(mask)
+    mask = skm.remove_small_objects(mask, min_size=min_obj_size)
+    mask = skm.remove_small_holes(mask, area_threshold=hole_size)
+    mask = skm.opening(mask)
+    labels = measure.label(mask)
+    props = measure.regionprops(labels)
+    if not props:
+        raise RuntimeError("No se encontró ningún objeto tras la limpieza.")
+    largest = max(props, key=lambda p: p.area)
+    minr, minc, maxr, maxc = largest.bbox
+    cropped_video = video[:, minr:maxr, minc:maxc, :]
+    return cropped_video, (minr, maxr, minc, maxc)
+
+# === Dataset de inferencia ===
+class VideoInferenceDataset(Dataset):
+    def __init__(self, input_dir, use_dynamic_crop=True):
+        """
+        Dataset que devuelve un volumen preprocesado listo para segmentación ONNX
+        """
+        self.files = sorted(glob.glob(os.path.join(input_dir, "**", "*.mp4"), recursive=True))
+        if not self.files:
+            raise FileNotFoundError(f"No .mp4 files found in {input_dir}")
+        self.use_dynamic_crop = use_dynamic_crop
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        path = self.files[idx]
+        video = vread(path)
+
+        # Recorte: dinámico o centrado
+        if self.use_dynamic_crop:
+            video, (minr, maxr, minc, maxc) = process_video_and_get_crop(video)
+        else:
+            D, H, W, _ = video.shape
+            crop_size = 912
+            cy, cx = H // 2, W // 2
+            y1, y2 = cy - crop_size // 2, cy + crop_size // 2
+            x1, x2 = cx - crop_size // 2, cx + crop_size // 2
+            video = video[:, y1:y2, x1:x2, :]
+            minr, maxr, minc, maxc = y1, y2, x1, x2
+
+        # Limpieza de marcador
+        video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
+        # Conversión a escala de grises y resize a (128,128,128)
+        D, H, W, _ = video.shape
+        gray_vol = np.zeros((1, D, H, W), dtype=np.uint8)
+        for i in range(D):
+            gray = np.dot(video[i], [0.2989, 0.5870, 0.1140])
+            gray_vol[0, i] = gray.astype(np.uint8)
+
+        img = tio.ScalarImage(tensor=gray_vol)
+        img = tio.Resize((128, 128, 128))(img)
+        volume = img.data.numpy().astype(np.float32)
+
+        return {
+            "image": volume,
+            "filename": os.path.basename(path),
+            "crop_coords": (minr, maxr, minc, maxc),
+            "video_path": path
+        }
+    
+# === Parseo de argumentos ===
+def parse_args():
+    p = argparse.ArgumentParser("Segmentación ONNX + Clasificación")
+    # Argumentos de segmentación
+    p.add_argument("--seg_config", "-c", required=True)  # YAML con parámetros de evaluación (umbral, etc.)
+    p.add_argument("--onnx_dir", "-k", required=True)     # Carpeta con modelos ONNX
+    p.add_argument("--video_dir", "-i", required=True)    # Carpeta raíz con videos .mp4
+    p.add_argument("--out_mask_dir", "-o", required=True) # Carpeta para guardar las máscaras .npy (opcional)
+    p.add_argument("--save_overlay", action="store_true") # Flag para guardar overlay como video
+
+    # Argumentos de clasificación
+    p.add_argument("--cls_onnx_paths", nargs="+", required=True)  # Modelos PyTorch entrenados (ResNet, etc.)
+    p.add_argument("--n_samples", type=int, default=5)             # Nº de frames a clasificar (aleatorios + max área)
+    p.add_argument("--tol", type=float, default=0.2)               # Tolerancia sobre área máxima
+    p.add_argument("--video_ext", type=str, default=".mp4")       # Extensión de los videos para búsqueda
+    p.add_argument("--cls_batch_size", type=int, default=8)        # Batch size de inferencia clasificación
+    p.add_argument("--output_csv", type=str, default="ensemble_summary.csv")  # Output final
+    return p.parse_args()
+
+def save_classification_frames(frames, output_dir, clipname):
+    """
+    Guarda los frames usados para clasificación como imágenes PNG
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    saved_paths = []
+    for i, frame in enumerate(frames):
+        filename = f"{clipname}_f{i}.png"
+        path = os.path.join(output_dir, filename)
+        plt.imsave(path, frame)
+        saved_paths.append(os.path.join("frames", filename))  # ruta relativa
+    return saved_paths
+
+# === Función principal ===
+def main():
+    args = parse_args()
+
+    # Carga de configuración (YAML): contiene umbral de evaluación, etc.
+    conf = Dict(yaml.safe_load(open(args.seg_config)))
+
+    # Inicialización de modelos ONNX
+    # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
+    providers = ["CPUExecutionProvider"]
+    onnx_paths = sorted(glob.glob(os.path.join(args.onnx_dir, "*.onnx")))
+    onnx_sessions = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
+
+    # Dataset de videos ya preprocesado
+    dataset = VideoInferenceDataset(args.video_dir)
+
+    # Diccionario para acumular predicciones por video
+    all_votes = {}
+
+    # Asegura que exista el output directory
+    os.makedirs(args.out_mask_dir, exist_ok=True)
+
+    # === Bucle de inferencia sobre todos los videos ===
+    for i in range(len(dataset)):
+        sample = dataset[i]
+        x = sample["image"][None, ...]  # Añade batch dim: (1, 1, D, H, W)
+        fname = sample["filename"]
+        video_path = sample["video_path"]
+        crop_coords = sample["crop_coords"]
+
+        # Ensemble de predicciones ONNX
+        preds = []
+        for sess in onnx_sessions:
+            out = sess.run(["output"], {"input": x})[0]
+            preds.append(out)
+
+        # Promedio soft del ensemble
+        avg = np.mean(preds, axis=0)  # (1, 1, D, H, W)
+        mask = (avg[0, 0] >= conf.train_par.eval_threshold).astype(np.uint8)
+
+        # === Guardado opcional de máscara ===
+        # out_name = os.path.splitext(fname)[0] + "_mask.npy"
+        # np.save(os.path.join(args.out_mask_dir, out_name), mask)
+
+        # === Guardado opcional de overlay ===
+        if args.save_overlay:
+            from inference_seg_onnx import save_three_panel  # Reutiliza función existente
+            save_three_panel(video_path, args.out_mask_dir, mask, crop_coords)
+
+        # === CLASIFICACIÓN ===
+        clip = os.path.splitext(fname)[0]
+
+        # Selección de frames representativos usando la máscara
+        idxs = select_candidate_frames(mask, n_samples=args.n_samples, tol=args.tol, video_path=video_path, crop_coords=crop_coords)
+        frames = load_frames_from_video(video_path, idxs)
+
+        # Guardar frames usados para clasificación
+        frames_dir = os.path.join(args.out_mask_dir, "frames")
+        frame_paths = save_classification_frames(frames, frames_dir, clip)
+
+        # Dataset + DataLoader para esos frames
+        ds_cls = FrameDataset(frames, cls_transforms.Compose([
+            cls_transforms.ToPILImage(),
+            cls_transforms.Resize((224, 224)),
+            cls_transforms.ToTensor(),
+            cls_transforms.Normalize([0.5]*3, [0.5]*3)
+        ]))
+        dl_cls = DataLoader(ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2)
+
+        # Carga de modelos clasificadores
+        cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cpu")
+
+        # Inferencia con cada modelo → softmax por frame
+        probs = [predict_with_model_onnx(m, dl_cls, device) for m in cls_models]
+
+        # Voting por frame (majority vote)
+        frame_votes = []
+        for f in range(len(frames)):
+            votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
+            winner, _ = Counter(votes).most_common(1)[0]
+            frame_votes.append(winner)
+
+        all_votes[clip] = {
+            "votes": frame_votes,
+            "frame_paths": frame_paths
+        }
+
+    # === Exportar CSV final con resumen ===
+    df = summarize_ensemble_predictions(all_votes)
+    df.to_csv(args.output_csv, index=False)
+
+    # === POSTPROCESAMIENTO DEL CSV ===
+
+    # 1. Añadir columna 'image_path' con ruta relativa (una imagen por clip)
+    df["image_path"] = df["patient_id"].apply(lambda c: os.path.join("images", c + ".png"))
+
+    # 2. Convertir 'final_label' a formato JSON como dict string
+    df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
+
+    # Guardar CSV nuevamente con nuevas columnas
+    df.to_csv(args.output_csv, index=False)
+    print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
+
+# === Dataset para clasificación (frames individuales) ===
+class FrameDataset(Dataset):
+    def __init__(self, frames, transform=None):
+        self.frames = frames
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, idx):
+        x = self.frames[idx]
+        if self.transform:
+            x = self.transform(x)
+        return x, 0, 0  # Dummy label y patient_id (no se usan)
+
+
+if __name__ == "__main__":
+    main()
