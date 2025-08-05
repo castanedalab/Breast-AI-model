@@ -3,6 +3,12 @@ import cv2
 import random
 from skimage.metrics import structural_similarity as ssim
 import os
+import skvideo
+
+skvideo.setFFmpegPath("C:/Users/PUCP-ROCHESTER-003/Documents/ffmpeg/bin")
+# print("FFmpeg path: {}".format(skvideo.getFFmpegPath()))
+# print("FFmpeg version: {}".format(skvideo.getFFmpegVersion()))
+
 import skvideo.io
 
 
