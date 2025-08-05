@@ -233,7 +233,7 @@ def parse_args():
 
     # Argumentos de clasificación
     p.add_argument(
-        "--cls_onnx_dir", nargs="+", required=True
+        "--cls_onnx_dir", required=True
     )  # Modelos PyTorch entrenados (ResNet, etc.)
     p.add_argument(
         "--n_samples", type=int, default=5
