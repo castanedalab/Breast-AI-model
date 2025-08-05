@@ -298,6 +298,7 @@ def main():
         x = sample["image"][None, ...]  # Añade batch dim: (1, 1, D, H, W)
         fname = sample["filename"]
         video_path = sample["video_path"]
+        print(f"Procesando video: {video_path}")
         crop_coords = sample["crop_coords"]
 
         # Ensemble de predicciones ONNX
