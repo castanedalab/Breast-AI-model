@@ -43,7 +43,7 @@ from torchvision import transforms as cls_transforms
 import matplotlib.pyplot as plt
 
 # === Utilidades auxiliares de segmentación y clasificación ===
-from utils_seg import select_candidate_frames, load_frames_from_video  # , vread, vwrite
+# from utils_seg import select_candidate_frames, load_frames_from_video  # , vread, vwrite
 from utils_clasi import (
     load_model,
     predict_with_model,
@@ -91,6 +91,39 @@ def remove_B_marker(
     clean = video.copy()
     clean[mask3d] = 0
     return clean
+
+
+def select_candidate_frames(mask_array, n_samples=5, tol=0.2):
+    """
+    Solo area y SSIM sobre máscara binaria, sin leer video.
+    """
+    # mask_array: (D,H,W)
+    areas = mask_array.reshape(mask_array.shape[0], -1).sum(1)
+    if areas.max() == 0:
+        raise RuntimeError("No hay frames con máscara.")
+    idx_max = int(np.argmax(areas))
+
+    # el resto que tenga algo de máscara
+    elig = [
+        i
+        for i, a in enumerate(areas)
+        if i != idx_max and a > 0 and a >= (1 - tol) * areas[idx_max]
+    ]
+
+    # si faltan, mete cuantos quieras de los no-vacíos
+    if len(elig) < n_samples:
+        more = [i for i, a in enumerate(areas) if a > 0 and i != idx_max]
+        elig = list(set(elig + more))
+
+    # usa SSIM sobre las máscaras binarias
+    from skimage.metrics import structural_similarity as ssim
+
+    ref = mask_array[idx_max].astype(float)
+    scores = [(i, ssim(ref, mask_array[i].astype(float), data_range=1.0)) for i in elig]
+    scores.sort(key=lambda x: x[1])  # menor → más distinto
+    selected = [i for i, _ in scores[:n_samples]]
+
+    return [idx_max] + selected
 
 
 # === Función para detectar zona activa mediante diferencia de frames ===
@@ -216,6 +249,7 @@ class VideoInferenceDataset(Dataset):
 
         return {
             "image": volume,
+            "video_clean": video,  # vídeo limpio (sin marcador)
             "filename": os.path.basename(path),
             "crop_coords": (minr, maxr, minc, maxc),
             "video_path": path,
@@ -327,15 +361,20 @@ def main():
         # === CLASIFICACIÓN ===
         clip = os.path.splitext(fname)[0]
 
+        video_clean = sample["video_clean"]
         # Selección de frames representativos usando la máscara
-        idxs = select_candidate_frames(
-            mask,
-            n_samples=args.n_samples,
-            tol=args.tol,
-            video_path=video_path,
-            crop_coords=crop_coords,
-        )
-        frames = load_frames_from_video(video_path, idxs)
+        # idxs = select_candidate_frames(
+        #     mask,
+        #     n_samples=args.n_samples,
+        #     tol=args.tol,
+        #     video_path=video_path,
+        #     crop_coords=crop_coords,
+        # )
+        idxs = select_candidate_frames(mask, n_samples=args.n_samples, tol=args.tol)
+
+        idxs_orig = [int(idx * video_clean.shape[0] / mask.shape[0]) for idx in idxs]
+        frames = [video_clean[i] for i in idxs_orig]
+        # frames = load_frames_from_video(video_path, idxs)
 
         # Guardar frames usados para clasificación
         frames_dir = os.path.join(args.out_dir, "frames")
