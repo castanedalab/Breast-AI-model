@@ -16,3 +16,4 @@
 /src/onnx_models_preprocessed/*
 
 *.zip
+*.onnx
