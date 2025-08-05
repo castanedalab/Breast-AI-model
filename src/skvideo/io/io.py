@@ -8,8 +8,10 @@ from .. import _HAS_AVCONV
 from .. import _HAS_FFMPEG
 from ..utils import *
 
-/Users/emilio/anaconda3/envs/lightning/lib/python3.12/site-packages/skvideo/io/io.py
-def vwrite(fname, videodata, inputdict=None, outputdict=None, backend='ffmpeg', verbosity=0):
+
+def vwrite(
+    fname, videodata, inputdict=None, outputdict=None, backend="ffmpeg", verbosity=0
+):
     """Save a video to file entirely from memory.
 
     Parameters
@@ -57,16 +59,22 @@ def vwrite(fname, videodata, inputdict=None, outputdict=None, backend='ffmpeg', 
 
     if backend == "ffmpeg":
         # check if FFMPEG exists in the path
-        assert _HAS_FFMPEG, "Cannot find installation of real FFmpeg (which comes with ffprobe)."
+        assert _HAS_FFMPEG, (
+            "Cannot find installation of real FFmpeg (which comes with ffprobe)."
+        )
 
-        writer = FFmpegWriter(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        writer = FFmpegWriter(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         for t in range(T):
             writer.writeFrame(videodata[t])
         writer.close()
     elif backend == "libav":
         # check if FFMPEG exists in the path
         assert _HAS_AVCONV, "Cannot find installation of libav."
-        writer = LibAVWriter(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        writer = LibAVWriter(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         for t in range(T):
             writer.writeFrame(videodata[t])
         writer.close()
@@ -74,7 +82,17 @@ def vwrite(fname, videodata, inputdict=None, outputdict=None, backend='ffmpeg', 
         raise NotImplemented
 
 
-def vread(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=None, outputdict=None, backend='ffmpeg', verbosity=0):
+def vread(
+    fname,
+    height=0,
+    width=0,
+    num_frames=0,
+    as_grey=False,
+    inputdict=None,
+    outputdict=None,
+    backend="ffmpeg",
+    verbosity=0,
+):
     """Load a video from file entirely into memory.
 
     Parameters
@@ -130,18 +148,22 @@ def vread(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=None,
 
     if backend == "ffmpeg":
         # check if FFMPEG exists in the path
-        assert _HAS_FFMPEG, "Cannot find installation of real FFmpeg (which comes with ffprobe)."
+        assert _HAS_FFMPEG, (
+            "Cannot find installation of real FFmpeg (which comes with ffprobe)."
+        )
 
-        if ((height != 0) and (width != 0)):
-            inputdict['-s'] = str(width) + 'x' + str(height)
+        if (height != 0) and (width != 0):
+            inputdict["-s"] = str(width) + "x" + str(height)
 
         if num_frames != 0:
-            outputdict['-vframes'] = str(num_frames)
+            outputdict["-vframes"] = str(num_frames)
 
         if as_grey:
-            outputdict['-pix_fmt'] = 'gray'
+            outputdict["-pix_fmt"] = "gray"
 
-        reader = FFmpegReader(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        reader = FFmpegReader(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         T, M, N, C = reader.getShape()
 
         videodata = np.empty((T, M, N, C), dtype=reader.dtype)
@@ -157,13 +179,15 @@ def vread(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=None,
         # check if FFMPEG exists in the path
         assert _HAS_AVCONV, "Cannot find installation of libav."
 
-        if ((height != 0) and (width != 0)):
-            inputdict['-s'] = str(width) + 'x' + str(height)
+        if (height != 0) and (width != 0):
+            inputdict["-s"] = str(width) + "x" + str(height)
 
         if num_frames != 0:
-            outputdict['-vframes'] = str(num_frames)
+            outputdict["-vframes"] = str(num_frames)
 
-        reader = LibAVReader(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        reader = LibAVReader(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         T, M, N, C = reader.getShape()
 
         videodata = np.empty((T, M, N, C), dtype=reader.dtype)
@@ -177,7 +201,17 @@ def vread(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=None,
         raise NotImplemented
 
 
-def vreader(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=None, outputdict=None, backend='ffmpeg', verbosity=0):
+def vreader(
+    fname,
+    height=0,
+    width=0,
+    num_frames=0,
+    as_grey=False,
+    inputdict=None,
+    outputdict=None,
+    backend="ffmpeg",
+    verbosity=0,
+):
     """Load a video through the use of a generator.
 
     Parameters
@@ -239,16 +273,18 @@ def vreader(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=Non
         # check if FFMPEG exists in the path
         assert _HAS_FFMPEG, "Cannot find installation of ffmpeg."
 
-        if ((height != 0) and (width != 0)):
-            inputdict['-s'] = str(width) + 'x' + str(height)
+        if (height != 0) and (width != 0):
+            inputdict["-s"] = str(width) + "x" + str(height)
 
         if num_frames != 0:
-            outputdict['-vframes'] = str(num_frames)
+            outputdict["-vframes"] = str(num_frames)
 
         if as_grey:
-            outputdict['-pix_fmt'] = 'gray'
+            outputdict["-pix_fmt"] = "gray"
 
-        reader = FFmpegReader(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        reader = FFmpegReader(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         try:
             for frame in reader.nextFrame():
                 if as_grey:
@@ -262,13 +298,15 @@ def vreader(fname, height=0, width=0, num_frames=0, as_grey=False, inputdict=Non
         # check if FFMPEG exists in the path
         assert _HAS_AVCONV, "Cannot find installation of libav."
 
-        if ((height != 0) and (width != 0)):
-            inputdict['-s'] = str(width) + 'x' + str(height)
+        if (height != 0) and (width != 0):
+            inputdict["-s"] = str(width) + "x" + str(height)
 
         if num_frames != 0:
-            outputdict['-vframes'] = str(num_frames)
+            outputdict["-vframes"] = str(num_frames)
 
-        reader = LibAVReader(fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity)
+        reader = LibAVReader(
+            fname, inputdict=inputdict, outputdict=outputdict, verbosity=verbosity
+        )
         try:
             for frame in reader.nextFrame():
                 yield frame

@@ -42,7 +42,7 @@ from torchvision import transforms as cls_transforms
 import matplotlib.pyplot as plt
 
 # === Utilidades auxiliares de segmentación y clasificación ===
-from utils_seg import select_candidate_frames, load_frames_from_video, vread, vwrite
+from utils_seg import select_candidate_frames, load_frames_from_video  # , vread, vwrite
 from utils_clasi import (
     load_model,
     predict_with_model,
@@ -50,6 +50,7 @@ from utils_clasi import (
     load_model_onnx,
     predict_with_model_onnx,
 )
+from skvideo.io import vread, vwrite
 
 
 # Mapa numérico a etiquetas para clasificación
