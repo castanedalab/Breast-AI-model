@@ -277,6 +277,7 @@ def main():
     # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
     providers = ["CPUExecutionProvider"]
     onnx_paths = sorted(glob.glob(os.path.join("./segmentacion_onnx", "*.onnx")))
+    print(f"Modelos ONNX encontrados: {len(onnx_paths)}")
     onnx_sessions = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
     # Dataset de videos ya preprocesado
