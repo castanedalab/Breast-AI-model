@@ -273,9 +273,6 @@ def save_classification_frames(frames, output_dir, clipname):
 def main():
     args = parse_args()
 
-    # Carga de configuración (YAML): contiene umbral de evaluación, etc.
-    conf = Dict(yaml.safe_load(open("./default_config_train_seg.yaml")))
-
     # Inicialización de modelos ONNX
     # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
     providers = ["CPUExecutionProvider"]
@@ -309,7 +306,7 @@ def main():
 
         # Promedio soft del ensemble
         avg = np.mean(preds, axis=0)  # (1, 1, D, H, W)
-        mask = (avg[0, 0] >= conf.train_par.eval_threshold).astype(np.uint8)
+        mask = (avg[0, 0] >= 0.5).astype(np.uint8)
 
         # === Guardado opcional de máscara ===
         # out_name = os.path.splitext(fname)[0] + "_mask.npy"
