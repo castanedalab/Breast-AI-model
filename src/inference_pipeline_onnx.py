@@ -237,17 +237,18 @@ class VideoInferenceDataset(Dataset):
         video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
 
         # Conversión a escala de grises y resize a (128,128,128)
-        D, H, W, _ = video.shape
+        _, H, W, _ = video.shape
         # gray_vol = np.zeros((1, D, H, W), dtype=np.uint8)
         # for i in range(D):
         #     gray = np.dot(video[i], [0.2989, 0.5870, 0.1140])
         #     gray_vol[0, i] = gray.astype(np.uint8)
         # coefs float32 para no caer en float64
         coefs = np.array([0.2989, 0.5870, 0.1140], dtype=np.float32)
-        gray = np.tensordot(video, coefs, axes=([3], [0]))  # → float32
-        gray = gray.astype(np.uint8)  # → uint8
+        # → esto te da float32
+        gray = np.tensordot(video, coefs, axes=([3], [0]))
 
-        gray = gray / 255.0  # → float32 en [0,1]
+        # normaliza en [0,1] y SIGUE siendo float32
+        gray = gray / np.float32(255.0)
 
         # 3. Construye el ScalarImage YA en float32 normalizado
         img = tio.ScalarImage(tensor=gray[None, ...])  # shape (1,D,H,W), dtype float32
@@ -370,7 +371,7 @@ def main():
             mask = (avg[0, 0] >= 0.5).astype(np.uint8)
             save_three_panel(video_path, args.out_dir + "/videos", mask, crop_coords)
         else:
-            mask = (avg[0, 0] >= 0.5) 
+            mask = avg[0, 0] >= 0.5
         # === CLASIFICACIÓN ===
         clip = os.path.splitext(fname)[0]
 
