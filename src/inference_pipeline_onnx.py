@@ -53,8 +53,7 @@ from utils_clasi import (
 import skvideo
 from skvideo.io import vread, vwrite
 
-skvideo.setFFmpegPath(r"C:\Users\PUCP-ROCHESTER-003\Documents\ffmpeg\bin\ffmpeg.exe")
-skvideo.setFFprobePath(r"C:\Users\PUCP-ROCHESTER-003\Documents\ffmpeg\bin\ffprobe.exe")
+skvideo.setFFmpegPath(r"C:\Users\PUCP-ROCHESTER-003\Documents\ffmpeg\bin")
 
 # Mapa numérico a etiquetas para clasificación
 LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
