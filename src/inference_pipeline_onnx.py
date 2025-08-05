@@ -238,14 +238,26 @@ class VideoInferenceDataset(Dataset):
 
         # Conversión a escala de grises y resize a (128,128,128)
         D, H, W, _ = video.shape
-        gray_vol = np.zeros((1, D, H, W), dtype=np.uint8)
-        for i in range(D):
-            gray = np.dot(video[i], [0.2989, 0.5870, 0.1140])
-            gray_vol[0, i] = gray.astype(np.uint8)
+        # gray_vol = np.zeros((1, D, H, W), dtype=np.uint8)
+        # for i in range(D):
+        #     gray = np.dot(video[i], [0.2989, 0.5870, 0.1140])
+        #     gray_vol[0, i] = gray.astype(np.uint8)
+        # coefs float32 para no caer en float64
+        coefs = np.array([0.2989, 0.5870, 0.1140], dtype=np.float32)
+        gray = np.tensordot(video, coefs, axes=([3], [0]))  # → float32
+        gray = gray.astype(np.uint8)  # → uint8
 
-        img = tio.ScalarImage(tensor=gray_vol)
+        gray = gray / 255.0  # → float32 en [0,1]
+
+        # 3. Construye el ScalarImage YA en float32 normalizado
+        img = tio.ScalarImage(tensor=gray[None, ...])  # shape (1,D,H,W), dtype float32
         img = tio.Resize((128, 128, 128))(img)
-        volume = img.data.numpy().astype(np.float32)
+        volume = img.data.numpy()  # shape (1,128,128,128), dtype float32
+        # img = tio.ScalarImage(tensor=gray_vol)
+
+        # img = tio.ScalarImage(tensor=gray)
+        # img = tio.Resize((128, 128, 128))(img)
+        # volume = img.data.numpy().astype(np.float32)
 
         return {
             "image": volume,
@@ -344,7 +356,6 @@ def main():
 
         # Promedio soft del ensemble
         avg = np.mean(preds, axis=0)  # (1, 1, D, H, W)
-        mask = (avg[0, 0] >= 0.5).astype(np.uint8)
 
         # === Guardado opcional de máscara ===
         # out_name = os.path.splitext(fname)[0] + "_mask.npy"
@@ -356,8 +367,10 @@ def main():
         #         save_three_panel,
         #     )  # Reutiliza función existente
         if args.save_overlay:
+            mask = (avg[0, 0] >= 0.5).astype(np.uint8)
             save_three_panel(video_path, args.out_dir + "/videos", mask, crop_coords)
-
+        else:
+            mask = (avg[0, 0] >= 0.5) 
         # === CLASIFICACIÓN ===
         clip = os.path.splitext(fname)[0]
 
