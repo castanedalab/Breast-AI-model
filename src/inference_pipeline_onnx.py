@@ -225,10 +225,10 @@ class VideoInferenceDataset(Dataset):
 def parse_args():
     p = argparse.ArgumentParser("Segmentación ONNX + Clasificación")
     # Argumentos de segmentación
-    p.add_argument(
-        "--seg_config", "-c", required=True
-    )  # YAML con parámetros de evaluación (umbral, etc.)
-    p.add_argument("--seg_onnx_dir", "-k", required=True)  # Carpeta con modelos ONNX
+    # p.add_argument(
+    #     "--seg_config", "-c", required=True
+    # )  # YAML con parámetros de evaluación (umbral, etc.)
+    # p.add_argument("--seg_onnx_dir", "-k", required=True)  # Carpeta con modelos ONNX
     p.add_argument("--video_dir", "-i", required=True)  # Carpeta raíz con videos .mp4
     p.add_argument(
         "--out_mask_dir", "-o", required=True
@@ -238,18 +238,18 @@ def parse_args():
     )  # Flag para guardar overlay como video
 
     # Argumentos de clasificación
+    # p.add_argument(
+    #     "--cls_onnx_dir", required=True
+    # )  # Modelos PyTorch entrenados (ResNet, etc.)
     p.add_argument(
-        "--cls_onnx_dir", required=True
-    )  # Modelos PyTorch entrenados (ResNet, etc.)
-    p.add_argument(
-        "--n_samples", type=int, default=5
+        "--n_samples", type=int, default=10
     )  # Nº de frames a clasificar (aleatorios + max área)
-    p.add_argument("--tol", type=float, default=0.2)  # Tolerancia sobre área máxima
+    p.add_argument("--tol", type=float, default=0.5)  # Tolerancia sobre área máxima
     p.add_argument(
         "--video_ext", type=str, default=".mp4"
     )  # Extensión de los videos para búsqueda
     p.add_argument(
-        "--cls_batch_size", type=int, default=8
+        "--cls_batch_size", type=int, default=1
     )  # Batch size de inferencia clasificación
     p.add_argument(
         "--output_csv", type=str, default="ensemble_summary.csv"
@@ -276,12 +276,12 @@ def main():
     args = parse_args()
 
     # Carga de configuración (YAML): contiene umbral de evaluación, etc.
-    conf = Dict(yaml.safe_load(open(args.seg_config)))
+    conf = Dict(yaml.safe_load(open("default_config_train_seg.yaml")))
 
     # Inicialización de modelos ONNX
     # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
     providers = ["CPUExecutionProvider"]
-    onnx_paths = sorted(glob.glob(os.path.join(args.seg_onnx_dir, "*.onnx")))
+    onnx_paths = sorted(glob.glob(os.path.join("./segmentacion_onnx", "*.onnx")))
     onnx_sessions = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
     # Dataset de videos ya preprocesado
@@ -356,7 +356,7 @@ def main():
         dl_cls = DataLoader(
             ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
         )
-        onnx_paths = sorted(glob.glob(os.path.join(args.cls_onnx_dir, "*.onnx")))
+        onnx_paths = sorted(glob.glob(os.path.join("./clasificacion_onnx", "*.onnx")))
         cls_models = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
         # Carga de modelos clasificadores
@@ -378,7 +378,7 @@ def main():
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
-    df.to_csv(args.output_csv, index=False)
+    df.to_csv(os.path.join(args.out_mask_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
 
