@@ -19,6 +19,7 @@ warnings.filterwarnings(
 )
 
 # === Librerías estándar y de procesamiento ===
+import gc
 import os
 import glob
 import argparse
@@ -279,6 +280,8 @@ def main():
     onnx_paths = sorted(glob.glob(os.path.join("./segmentacion_onnx", "*.onnx")))
     print(f"Modelos ONNX encontrados: {len(onnx_paths)}")
     onnx_sessions = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
+    onnx_paths = sorted(glob.glob(os.path.join("./clasificacion_onnx", "*.onnx")))
+    cls_models = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
     # Dataset de videos ya preprocesado
     dataset = VideoInferenceDataset(args.video_dir)
@@ -353,8 +356,6 @@ def main():
         dl_cls = DataLoader(
             ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
         )
-        onnx_paths = sorted(glob.glob(os.path.join("./clasificacion_onnx", "*.onnx")))
-        cls_models = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
         # Carga de modelos clasificadores
         # cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
@@ -372,6 +373,10 @@ def main():
             frame_votes.append(winner)
 
         all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
+
+        del sample, x, mask, frames, dl_cls, probs
+
+        gc.collect()
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
