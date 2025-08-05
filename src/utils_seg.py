@@ -3,7 +3,7 @@ import cv2
 import random
 from skimage.metrics import structural_similarity as ssim
 import os
-# import skvideo.io
+import skvideo.io
 
 
 def vread(path):
@@ -95,7 +95,7 @@ def select_candidate_frames(
         return [idx_max] + random.sample(elig, min(len(elig), n_samples))
 
     # Leer video y recortar con crop_coords
-    video = vread(video_path)
+    video = skvideo.io.vread(video_path)
     minr, maxr, minc, maxc = crop_coords
     video_crop = video[:, minr:maxr, minc:maxc, :]
     gray = np.dot(video_crop[..., :3], [0.2989, 0.5870, 0.1140]).astype(np.uint8)
