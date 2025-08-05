@@ -42,7 +42,7 @@ from torchvision import transforms as cls_transforms
 import matplotlib.pyplot as plt
 
 # === Utilidades auxiliares de segmentación y clasificación ===
-from utils_seg import select_candidate_frames, load_frames_from_video, vread
+from utils_seg import select_candidate_frames, load_frames_from_video, vread, vwrite
 from utils_clasi import (
     load_model,
     predict_with_model,
@@ -115,6 +115,50 @@ def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
     minr, minc, maxr, maxc = largest.bbox
     cropped_video = video[:, minr:maxr, minc:maxc, :]
     return cropped_video, (minr, maxr, minc, maxc)
+
+
+def save_three_panel(video_path, out_overlay_dir, mask, crop_coords):
+    os.makedirs(out_overlay_dir, exist_ok=True)
+    # read & crop video to (D, H, W, C)
+    video = vread(video_path)
+    video, _ = process_video_and_get_crop(video)
+    video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
+
+    # video = video[:, :, 0:-50, :]
+    # video = video[
+    #     :, crop_coords[0] : crop_coords[1], crop_coords[2] : crop_coords[3], :
+    # ]
+
+    # video = cropper(video, crop_size=912)
+    # video = process_video_and_get_crop(video)
+    D, H, W, C = video.shape
+
+    # prepare mask: (D, H, W), values 0/1
+    mask_map = tio.LabelMap(tensor=np.expand_dims(mask, axis=0))
+    mask_map = tio.Resize((D, H, W))(mask_map)
+    mask_resized = np.squeeze(mask_map.data.numpy())  # shape (D,H,W)
+
+    out_frames = []
+    for i in range(D):
+        orig = video[i].astype(np.uint8)  # (H,W,3)
+
+        # panel 2: mask in white on black, 3‑channel
+        m = (mask_resized[i] * 255).astype(np.uint8)  # (H,W)
+        mask_rgb = np.stack([m, m, m], axis=-1)  # (H,W,3)
+
+        # panel 3: overlay in red over orig
+        colored_mask = np.zeros_like(orig)
+        colored_mask[..., 0] = m  # red channel
+        overlay = cv2.addWeighted(orig, 0.7, colored_mask, 0.3, 0)
+
+        # concatenate panels horizontally
+        three_panel = np.concatenate([orig, mask_rgb, overlay], axis=1)
+        out_frames.append(three_panel)
+
+    out_array = np.stack(out_frames, axis=0)  # (D, H, 3*W, 3)
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_name = f"{base}_overlay.mp4"
+    vwrite(os.path.join(out_overlay_dir, out_name), out_array)
 
 
 # === Dataset de inferencia ===
@@ -266,11 +310,11 @@ def main():
         # np.save(os.path.join(args.out_mask_dir, out_name), mask)
 
         # === Guardado opcional de overlay ===
+        # if args.save_overlay:
+        #     from inference_seg_onnx import (
+        #         save_three_panel,
+        #     )  # Reutiliza función existente
         if args.save_overlay:
-            from inference_seg_onnx import (
-                save_three_panel,
-            )  # Reutiliza función existente
-
             save_three_panel(video_path, args.out_mask_dir, mask, crop_coords)
 
         # === CLASIFICACIÓN ===
