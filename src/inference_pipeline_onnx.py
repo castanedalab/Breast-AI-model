@@ -413,10 +413,9 @@ def main():
         # Carga de modelos clasificadores
         # cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        device = torch.device("cpu")
 
         # Inferencia con cada modelo → softmax por frame
-        probs = [predict_with_model_onnx(m, dl_cls, device) for m in cls_models]
+        probs = [predict_with_model_onnx(m, dl_cls) for m in cls_models]
 
         # Voting por frame (majority vote)
         frame_votes = []

@@ -7,7 +7,8 @@ from addict import Dict
 from collections import Counter
 import onnxruntime as ort
 
-def predict_with_model_onnx(session, dataloader, device):
+
+def predict_with_model_onnx(session, dataloader):
     predictions = []
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
@@ -18,22 +19,25 @@ def predict_with_model_onnx(session, dataloader, device):
         predictions.append(ort_outs[0])
     return np.vstack(predictions)
 
+
 def load_model_onnx(onnx_path, model_name=None):
     providers = ["CPUExecutionProvider"]
     session = ort.InferenceSession(onnx_path, providers=providers)
     return session, "cpu"
 
+
 def load_model(ckpt_path, model_name="resnet"):
-    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     device = torch.device("cpu")
-    model_opts = Dict({'name': model_name})
-    train_par   = Dict({'eval_threshold': 0.5, 'loss_opts': {'name': 'CrossEntropyLoss'}})
+    model_opts = Dict({"name": model_name})
+    train_par = Dict({"eval_threshold": 0.5, "loss_opts": {"name": "CrossEntropyLoss"}})
     model = MyModelMulticlass(model_opts=model_opts, train_par=train_par)
     checkpoint = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(checkpoint['state_dict'])
+    model.load_state_dict(checkpoint["state_dict"])
     model = model.to(device)
     model.eval()
     return model, device
+
 
 def predict_with_model(model, dataloader, device):
     predictions = []
@@ -45,23 +49,27 @@ def predict_with_model(model, dataloader, device):
             predictions.append(probs.cpu().numpy())
     return np.vstack(predictions)
 
+
 def ensemble_predictions(models, dataloader, device, method="average"):
-    label_map = {0:"No follow up",1:"Follow up",2:"Biopsy"}
+    label_map = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
     models = [m.to(device).eval() for m in models]
     patient_preds = {}
     with torch.no_grad():
         for images, labels, patient_ids in dataloader:
             images = images.to(device)
-            model_outs = [torch.nn.functional.softmax(m(images), dim=-1) for m in models]
-            if method=="average":
+            model_outs = [
+                torch.nn.functional.softmax(m(images), dim=-1) for m in models
+            ]
+            if method == "average":
                 preds = torch.stack(model_outs).mean(dim=0)
             else:
                 raise ValueError("Método no soportado")
             best = torch.argmax(preds, dim=1).cpu().numpy()
-            for i,pid in enumerate(patient_ids):
+            for i, pid in enumerate(patient_ids):
                 patient_preds.setdefault(pid, []).append(label_map[int(best[i])])
     # voto por mayoría (devuelve sólo el label ganador)
-    return {pid: max(set(v), key=v.count) for pid,v in patient_preds.items()}
+    return {pid: max(set(v), key=v.count) for pid, v in patient_preds.items()}
+
 
 def summarize_ensemble_predictions(predictions):
     """
@@ -92,14 +100,15 @@ def summarize_ensemble_predictions(predictions):
             final_label, count = cnt.most_common(1)[0]
 
         agreement = count / len(votes)
-        rows.append({
-            "patient_id": pid,
-            "final_label": final_label,
-            "agreement": agreement,
-            "votes": votes,
-            "frame_paths": paths
-        })
+        rows.append(
+            {
+                "patient_id": pid,
+                "final_label": final_label,
+                "agreement": agreement,
+                "votes": votes,
+                "frame_paths": paths,
+            }
+        )
 
     df = pd.DataFrame(rows)
     return df.sort_values("agreement", ascending=False)
-
