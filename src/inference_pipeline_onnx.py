@@ -290,7 +290,7 @@ def parse_args():
     #     "--cls_onnx_dir", required=True
     # )  # Modelos PyTorch entrenados (ResNet, etc.)
     p.add_argument(
-        "--n_samples", type=int, default=10
+        "--n_samples", type=int, default=5
     )  # Nº de frames a clasificar (aleatorios + max área)
     p.add_argument("--tol", type=float, default=0.5)  # Tolerancia sobre área máxima
     p.add_argument(
