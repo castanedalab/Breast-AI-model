@@ -295,6 +295,7 @@ def main():
 
     # === Bucle de inferencia sobre todos los videos ===
     for i in range(len(dataset)):
+        print(f"Procesando video {i + 1}/{len(dataset)}...")
         sample = dataset[i]
         x = sample["image"][None, ...]  # Añade batch dim: (1, 1, D, H, W)
         fname = sample["filename"]
