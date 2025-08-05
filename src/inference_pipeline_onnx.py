@@ -11,7 +11,12 @@ Incluye:
 """
 
 import warnings
-warnings.filterwarnings("ignore", message="Failed to load image Python extension", module="torchvision.io.image")
+
+warnings.filterwarnings(
+    "ignore",
+    message="Failed to load image Python extension",
+    module="torchvision.io.image",
+)
 
 # === Librerías estándar y de procesamiento ===
 import os
@@ -23,7 +28,8 @@ import torch
 import onnxruntime as ort
 import cv2
 import torchio as tio
-#import skvideo.io
+
+# import skvideo.io
 import random
 import skimage.morphology as skm
 from skimage.morphology import disk
@@ -37,14 +43,23 @@ import matplotlib.pyplot as plt
 
 # === Utilidades auxiliares de segmentación y clasificación ===
 from utils_seg import select_candidate_frames, load_frames_from_video, vread
-from utils_clasi import load_model, predict_with_model, summarize_ensemble_predictions, load_model_onnx, predict_with_model_onnx
+from utils_clasi import (
+    load_model,
+    predict_with_model,
+    summarize_ensemble_predictions,
+    load_model_onnx,
+    predict_with_model_onnx,
+)
 
 
 # Mapa numérico a etiquetas para clasificación
 LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
 
+
 # === Función para remover el marcador brillante tipo "B" ===
-def remove_B_marker(video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_size=100, dilate_rad=8):
+def remove_B_marker(
+    video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_size=100, dilate_rad=8
+):
     """
     Detecta y enmascara el marcador brillante (por ejemplo letra "B") en esquina superior izquierda
     """
@@ -70,6 +85,7 @@ def remove_B_marker(video, frame_idx=0, roi_frac=(0.15, 0.15), thr_val=200, min_
     clean[mask3d] = 0
     return clean
 
+
 # === Función para detectar zona activa mediante diferencia de frames ===
 def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
     """
@@ -78,8 +94,12 @@ def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
     video = video[:, :, 0:-50, :]  # elimina borde derecho (artefacto)
     D, H, W, _ = video.shape
     ref_idx, idx1, idx2 = random.sample(range(D), 3)
-    diff1 = (video[ref_idx].astype(np.float32) - video[idx1].astype(np.float32)).astype(np.uint8)
-    diff2 = (video[ref_idx].astype(np.float32) - video[idx2].astype(np.float32)).astype(np.uint8)
+    diff1 = (video[ref_idx].astype(np.float32) - video[idx1].astype(np.float32)).astype(
+        np.uint8
+    )
+    diff2 = (video[ref_idx].astype(np.float32) - video[idx2].astype(np.float32)).astype(
+        np.uint8
+    )
     gray1 = cv2.cvtColor(diff1, cv2.COLOR_RGB2GRAY)
     gray2 = cv2.cvtColor(diff2, cv2.COLOR_RGB2GRAY)
     mask = np.logical_or(gray1 > 0, gray2 > 0)
@@ -96,13 +116,16 @@ def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
     cropped_video = video[:, minr:maxr, minc:maxc, :]
     return cropped_video, (minr, maxr, minc, maxc)
 
+
 # === Dataset de inferencia ===
 class VideoInferenceDataset(Dataset):
     def __init__(self, input_dir, use_dynamic_crop=True):
         """
         Dataset que devuelve un volumen preprocesado listo para segmentación ONNX
         """
-        self.files = sorted(glob.glob(os.path.join(input_dir, "**", "*.mp4"), recursive=True))
+        self.files = sorted(
+            glob.glob(os.path.join(input_dir, "**", "*.mp4"), recursive=True)
+        )
         if not self.files:
             raise FileNotFoundError(f"No .mp4 files found in {input_dir}")
         self.use_dynamic_crop = use_dynamic_crop
@@ -144,27 +167,45 @@ class VideoInferenceDataset(Dataset):
             "image": volume,
             "filename": os.path.basename(path),
             "crop_coords": (minr, maxr, minc, maxc),
-            "video_path": path
+            "video_path": path,
         }
-    
+
+
 # === Parseo de argumentos ===
 def parse_args():
     p = argparse.ArgumentParser("Segmentación ONNX + Clasificación")
     # Argumentos de segmentación
-    p.add_argument("--seg_config", "-c", required=True)  # YAML con parámetros de evaluación (umbral, etc.)
-    p.add_argument("--onnx_dir", "-k", required=True)     # Carpeta con modelos ONNX
-    p.add_argument("--video_dir", "-i", required=True)    # Carpeta raíz con videos .mp4
-    p.add_argument("--out_mask_dir", "-o", required=True) # Carpeta para guardar las máscaras .npy (opcional)
-    p.add_argument("--save_overlay", action="store_true") # Flag para guardar overlay como video
+    p.add_argument(
+        "--seg_config", "-c", required=True
+    )  # YAML con parámetros de evaluación (umbral, etc.)
+    p.add_argument("--seg_onnx_dir", "-k", required=True)  # Carpeta con modelos ONNX
+    p.add_argument("--video_dir", "-i", required=True)  # Carpeta raíz con videos .mp4
+    p.add_argument(
+        "--out_mask_dir", "-o", required=True
+    )  # Carpeta para guardar las máscaras .npy (opcional)
+    p.add_argument(
+        "--save_overlay", action="store_true"
+    )  # Flag para guardar overlay como video
 
     # Argumentos de clasificación
-    p.add_argument("--cls_onnx_paths", nargs="+", required=True)  # Modelos PyTorch entrenados (ResNet, etc.)
-    p.add_argument("--n_samples", type=int, default=5)             # Nº de frames a clasificar (aleatorios + max área)
-    p.add_argument("--tol", type=float, default=0.2)               # Tolerancia sobre área máxima
-    p.add_argument("--video_ext", type=str, default=".mp4")       # Extensión de los videos para búsqueda
-    p.add_argument("--cls_batch_size", type=int, default=8)        # Batch size de inferencia clasificación
-    p.add_argument("--output_csv", type=str, default="ensemble_summary.csv")  # Output final
+    p.add_argument(
+        "--cls_onnx_dir", nargs="+", required=True
+    )  # Modelos PyTorch entrenados (ResNet, etc.)
+    p.add_argument(
+        "--n_samples", type=int, default=5
+    )  # Nº de frames a clasificar (aleatorios + max área)
+    p.add_argument("--tol", type=float, default=0.2)  # Tolerancia sobre área máxima
+    p.add_argument(
+        "--video_ext", type=str, default=".mp4"
+    )  # Extensión de los videos para búsqueda
+    p.add_argument(
+        "--cls_batch_size", type=int, default=8
+    )  # Batch size de inferencia clasificación
+    p.add_argument(
+        "--output_csv", type=str, default="ensemble_summary.csv"
+    )  # Output final
     return p.parse_args()
+
 
 def save_classification_frames(frames, output_dir, clipname):
     """
@@ -179,6 +220,7 @@ def save_classification_frames(frames, output_dir, clipname):
         saved_paths.append(os.path.join("frames", filename))  # ruta relativa
     return saved_paths
 
+
 # === Función principal ===
 def main():
     args = parse_args()
@@ -189,7 +231,7 @@ def main():
     # Inicialización de modelos ONNX
     # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
     providers = ["CPUExecutionProvider"]
-    onnx_paths = sorted(glob.glob(os.path.join(args.onnx_dir, "*.onnx")))
+    onnx_paths = sorted(glob.glob(os.path.join(args.seg_onnx_dir, "*.onnx")))
     onnx_sessions = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
     # Dataset de videos ya preprocesado
@@ -225,14 +267,23 @@ def main():
 
         # === Guardado opcional de overlay ===
         if args.save_overlay:
-            from inference_seg_onnx import save_three_panel  # Reutiliza función existente
+            from inference_seg_onnx import (
+                save_three_panel,
+            )  # Reutiliza función existente
+
             save_three_panel(video_path, args.out_mask_dir, mask, crop_coords)
 
         # === CLASIFICACIÓN ===
         clip = os.path.splitext(fname)[0]
 
         # Selección de frames representativos usando la máscara
-        idxs = select_candidate_frames(mask, n_samples=args.n_samples, tol=args.tol, video_path=video_path, crop_coords=crop_coords)
+        idxs = select_candidate_frames(
+            mask,
+            n_samples=args.n_samples,
+            tol=args.tol,
+            video_path=video_path,
+            crop_coords=crop_coords,
+        )
         frames = load_frames_from_video(video_path, idxs)
 
         # Guardar frames usados para clasificación
@@ -240,17 +291,26 @@ def main():
         frame_paths = save_classification_frames(frames, frames_dir, clip)
 
         # Dataset + DataLoader para esos frames
-        ds_cls = FrameDataset(frames, cls_transforms.Compose([
-            cls_transforms.ToPILImage(),
-            cls_transforms.Resize((224, 224)),
-            cls_transforms.ToTensor(),
-            cls_transforms.Normalize([0.5]*3, [0.5]*3)
-        ]))
-        dl_cls = DataLoader(ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2)
+        ds_cls = FrameDataset(
+            frames,
+            cls_transforms.Compose(
+                [
+                    cls_transforms.ToPILImage(),
+                    cls_transforms.Resize((224, 224)),
+                    cls_transforms.ToTensor(),
+                    cls_transforms.Normalize([0.5] * 3, [0.5] * 3),
+                ]
+            ),
+        )
+        dl_cls = DataLoader(
+            ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
+        )
+        onnx_paths = sorted(glob.glob(os.path.join(args.cls_onnx_dir, "*.onnx")))
+        cls_models = [ort.InferenceSession(p, providers=providers) for p in onnx_paths]
 
         # Carga de modelos clasificadores
-        cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
-        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device("cpu")
 
         # Inferencia con cada modelo → softmax por frame
@@ -263,10 +323,7 @@ def main():
             winner, _ = Counter(votes).most_common(1)[0]
             frame_votes.append(winner)
 
-        all_votes[clip] = {
-            "votes": frame_votes,
-            "frame_paths": frame_paths
-        }
+        all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
@@ -275,7 +332,9 @@ def main():
     # === POSTPROCESAMIENTO DEL CSV ===
 
     # 1. Añadir columna 'image_path' con ruta relativa (una imagen por clip)
-    df["image_path"] = df["patient_id"].apply(lambda c: os.path.join("images", c + ".png"))
+    df["image_path"] = df["patient_id"].apply(
+        lambda c: os.path.join("images", c + ".png")
+    )
 
     # 2. Convertir 'final_label' a formato JSON como dict string
     df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
@@ -283,6 +342,7 @@ def main():
     # Guardar CSV nuevamente con nuevas columnas
     df.to_csv(args.output_csv, index=False)
     print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
+
 
 # === Dataset para clasificación (frames individuales) ===
 class FrameDataset(Dataset):
