@@ -51,9 +51,12 @@ from utils_clasi import (
     predict_with_model_onnx,
 )
 import skvideo
-from skvideo.io import vread, vwrite
 
-skvideo.setFFmpegPath(r"C:\Users\PUCP-ROCHESTER-003\Documents\ffmpeg\bin")
+skvideo.setFFmpegPath("C:/Users/PUCP-ROCHESTER-003/Documents/ffmpeg/bin")
+print("FFmpeg path: {}".format(skvideo.getFFmpegPath()))
+print("FFmpeg version: {}".format(skvideo.getFFmpegVersion()))
+
+import skvideo.io
 
 # Mapa numérico a etiquetas para clasificación
 LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
@@ -123,7 +126,7 @@ def process_video_and_get_crop(video, min_obj_size=1000, hole_size=1000):
 def save_three_panel(video_path, out_overlay_dir, mask, crop_coords):
     os.makedirs(out_overlay_dir, exist_ok=True)
     # read & crop video to (D, H, W, C)
-    video = vread(video_path)
+    video = skvideo.io.vread(video_path)
     video, _ = process_video_and_get_crop(video)
     video = remove_B_marker(video, thr_val=180, min_size=50, dilate_rad=20)
 
@@ -161,7 +164,7 @@ def save_three_panel(video_path, out_overlay_dir, mask, crop_coords):
     out_array = np.stack(out_frames, axis=0)  # (D, H, 3*W, 3)
     base = os.path.splitext(os.path.basename(video_path))[0]
     out_name = f"{base}_overlay.mp4"
-    vwrite(os.path.join(out_overlay_dir, out_name), out_array)
+    skvideo.io.vwrite(os.path.join(out_overlay_dir, out_name), out_array)
 
 
 # === Dataset de inferencia ===
@@ -182,7 +185,7 @@ class VideoInferenceDataset(Dataset):
 
     def __getitem__(self, idx):
         path = self.files[idx]
-        video = vread(path)
+        video = skvideo.io.vread(path)
 
         # Recorte: dinámico o centrado
         if self.use_dynamic_crop:
