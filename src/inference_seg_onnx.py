@@ -34,7 +34,7 @@ def parse_args():
         help="Folder with model_fold*.onnx",
     )
     p.add_argument(
-        "--input_dir", "-i", default="./videos", help="Folder with test .mp4 videos"
+        "--input_dir", "-i", default="./videos", help="Folder with .mp4 videos"
     )
     p.add_argument("--out_dir", "-o", default="./predictions")
     p.add_argument("--out_overlay_dir", "-ov", default="./overlays_crop")

@@ -14,3 +14,5 @@
 /src/overlays_rc2/*
 /src/onnx_models/*
 /src/onnx_models_preprocessed/*
+
+*.zip
