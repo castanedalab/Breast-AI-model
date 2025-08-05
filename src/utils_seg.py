@@ -5,7 +5,7 @@ from skimage.metrics import structural_similarity as ssim
 import os
 import skvideo
 
-skvideo.setFFmpegPath("C:/Users/PUCP-ROCHESTER-003/Documents/ffmpeg/bin")
+skvideo.setFFmpegPath("./ffmpeg/bin")
 # print("FFmpeg path: {}".format(skvideo.getFFmpegPath()))
 # print("FFmpeg version: {}".format(skvideo.getFFmpegVersion()))
 

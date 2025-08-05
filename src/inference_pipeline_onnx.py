@@ -52,7 +52,7 @@ from utils_clasi import (
 )
 import skvideo
 
-skvideo.setFFmpegPath("C:/Users/PUCP-ROCHESTER-003/Documents/ffmpeg/bin")
+skvideo.setFFmpegPath("./ffmpeg/bin")
 # print("FFmpeg path: {}".format(skvideo.getFFmpegPath()))
 # print("FFmpeg version: {}".format(skvideo.getFFmpegVersion()))
 
