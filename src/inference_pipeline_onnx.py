@@ -231,7 +231,7 @@ def parse_args():
     # p.add_argument("--seg_onnx_dir", "-k", required=True)  # Carpeta con modelos ONNX
     p.add_argument("--video_dir", "-i", required=True)  # Carpeta raíz con videos .mp4
     p.add_argument(
-        "--out_mask_dir", "-o", required=True
+        "--out_dir", "-o", required=True
     )  # Carpeta para guardar las máscaras .npy (opcional)
     p.add_argument(
         "--save_overlay", action="store_true"
@@ -251,9 +251,7 @@ def parse_args():
     p.add_argument(
         "--cls_batch_size", type=int, default=1
     )  # Batch size de inferencia clasificación
-    p.add_argument(
-        "--output_csv", type=str, default="ensemble_summary.csv"
-    )  # Output final
+    p.add_argument("--output_csv", type=str, default="result.csv")  # Output final
     return p.parse_args()
 
 
@@ -291,7 +289,7 @@ def main():
     all_votes = {}
 
     # Asegura que exista el output directory
-    os.makedirs(args.out_mask_dir, exist_ok=True)
+    os.makedirs(args.out_dir, exist_ok=True)
 
     # === Bucle de inferencia sobre todos los videos ===
     for i in range(len(dataset)):
@@ -322,7 +320,7 @@ def main():
         #         save_three_panel,
         #     )  # Reutiliza función existente
         if args.save_overlay:
-            save_three_panel(video_path, args.out_mask_dir, mask, crop_coords)
+            save_three_panel(video_path, args.out_dir + "/videos", mask, crop_coords)
 
         # === CLASIFICACIÓN ===
         clip = os.path.splitext(fname)[0]
@@ -338,7 +336,7 @@ def main():
         frames = load_frames_from_video(video_path, idxs)
 
         # Guardar frames usados para clasificación
-        frames_dir = os.path.join(args.out_mask_dir, "frames")
+        frames_dir = os.path.join(args.out_dir, "frames")
         frame_paths = save_classification_frames(frames, frames_dir, clip)
 
         # Dataset + DataLoader para esos frames
@@ -378,7 +376,7 @@ def main():
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
-    df.to_csv(os.path.join(args.out_mask_dir, args.output_csv), index=False)
+    df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
 
