@@ -274,7 +274,7 @@ def main():
     args = parse_args()
 
     # Carga de configuración (YAML): contiene umbral de evaluación, etc.
-    conf = Dict(yaml.safe_load(open("default_config_train_seg.yaml")))
+    conf = Dict(yaml.safe_load(open("./default_config_train_seg.yaml")))
 
     # Inicialización de modelos ONNX
     # providers = ["CUDAExecutionProvider"] if torch.cuda.is_available() else ["CPUExecutionProvider"]
