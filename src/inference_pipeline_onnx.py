@@ -436,8 +436,7 @@ def main():
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
-    print("Predicciones por video:")
-    print(df)
+
     # df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
@@ -452,7 +451,8 @@ def main():
 
     # Guardar CSV nuevamente con nuevas columnas
     df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
-    print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
+    print("Predicciones por video:")
+    print(df)
 
 
 # === Dataset para clasificación (frames individuales) ===
