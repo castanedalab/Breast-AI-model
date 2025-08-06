@@ -389,68 +389,68 @@ def main():
             mask, n_samples=args.n_samples, tol=args.tol
         )
 
-    #     idxs_orig = [int(idx * video_clean.shape[0] / mask.shape[0]) for idx in idxs]
-    #     frames = [video_clean[i] for i in idxs_orig]
-    #     # frames = load_frames_from_video(video_path, idxs)
+        idxs_orig = [int(idx * video_clean.shape[0] / mask.shape[0]) for idx in idxs]
+        frames = [video_clean[i] for i in idxs_orig]
+        # frames = load_frames_from_video(video_path, idxs)
 
-    #     # Guardar frames usados para clasificación
-    #     frames_dir = os.path.join(args.out_dir, "frames")
-    #     frame_paths = save_classification_frames(frames, frames_dir, clip)
-    #     if not detected:
-    #         print(f"⚠️ No se detectaron frames válidos para {clip}. Usando frame 0.")
-    #         frame_paths = [os.path.join("frames", f"{clip}_f0.png")]
-    #         frame_votes = ["No follow up"] * len(frames)  # Predicción por defecto
-    #         del sample, x, mask, frames
+        # Guardar frames usados para clasificación
+        frames_dir = os.path.join(args.out_dir, "frames")
+        frame_paths = save_classification_frames(frames, frames_dir, clip)
+        if not detected:
+            print(f"⚠️ No se detectaron frames válidos para {clip}. Usando frame 0.")
+            frame_paths = [os.path.join("frames", f"{clip}_f0.png")]
+            frame_votes = ["No follow up"] * len(frames)  # Predicción por defecto
+            del sample, x, mask, frames
 
-    #     else:
-    #         # Dataset + DataLoader para esos frames
-    #         ds_cls = FrameDataset(
-    #             frames,
-    #             cls_transforms.Compose(
-    #                 [
-    #                     cls_transforms.ToPILImage(),
-    #                     cls_transforms.Resize((224, 224)),
-    #                     cls_transforms.ToTensor(),
-    #                     cls_transforms.Normalize([0.5] * 3, [0.5] * 3),
-    #                 ]
-    #             ),
-    #         )
-    #         dl_cls = DataLoader(
-    #             ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
-    #         )
+        else:
+            # Dataset + DataLoader para esos frames
+            ds_cls = FrameDataset(
+                frames,
+                cls_transforms.Compose(
+                    [
+                        cls_transforms.ToPILImage(),
+                        cls_transforms.Resize((224, 224)),
+                        cls_transforms.ToTensor(),
+                        cls_transforms.Normalize([0.5] * 3, [0.5] * 3),
+                    ]
+                ),
+            )
+            dl_cls = DataLoader(
+                ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
+            )
 
-    #         # Carga de modelos clasificadores
-    #         # Inferencia con cada modelo → softmax por frame
-    #         probs = [predict_with_model_onnx(m, dl_cls) for m in cls_models]
+            # Carga de modelos clasificadores
+            # Inferencia con cada modelo → softmax por frame
+            probs = [predict_with_model_onnx(m, dl_cls) for m in cls_models]
 
-    #         # Voting por frame (majority vote)
-    #         frame_votes = []
-    #         for f in range(len(frames)):
-    #             votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
-    #             winner, _ = Counter(votes).most_common(1)[0]
-    #             frame_votes.append(winner)
-    #         del sample, x, mask, frames, dl_cls, probs
-    #     all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
+            # Voting por frame (majority vote)
+            frame_votes = []
+            for f in range(len(frames)):
+                votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
+                winner, _ = Counter(votes).most_common(1)[0]
+                frame_votes.append(winner)
+            del sample, x, mask, frames, dl_cls, probs
+        all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
 
-    #     gc.collect()
+        gc.collect()
 
-    # # === Exportar CSV final con resumen ===
-    # df = summarize_ensemble_predictions(all_votes)
-    # df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
+    # === Exportar CSV final con resumen ===
+    df = summarize_ensemble_predictions(all_votes)
+    df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
-    # # === POSTPROCESAMIENTO DEL CSV ===
+    # === POSTPROCESAMIENTO DEL CSV ===
 
-    # # 1. Añadir columna 'representative_path' con ruta relativa (una imagen por clip)
-    # df["representative_path"] = {
-    #     "path": frame_paths[0]
-    # }  # Debido a que el primer frame es el index mas grande
+    # 1. Añadir columna 'representative_path' con ruta relativa (una imagen por clip)
+    df["representative_path"] = {
+        "path": frame_paths[0]
+    }  # Debido a que el primer frame es el index mas grande
 
-    # # 2. Convertir 'final_label' a formato JSON como dict string
-    # df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
+    # 2. Convertir 'final_label' a formato JSON como dict string
+    df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
 
-    # # Guardar CSV nuevamente con nuevas columnas
-    # df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
-    # print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
+    # Guardar CSV nuevamente con nuevas columnas
+    df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
+    print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
 
 
 # === Dataset para clasificación (frames individuales) ===
