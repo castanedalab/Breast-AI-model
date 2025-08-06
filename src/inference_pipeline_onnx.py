@@ -449,7 +449,7 @@ def main():
     df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
 
     # Guardar CSV nuevamente con nuevas columnas
-    df.to_csv(args.output_csv, index=False)
+    df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
     print(f"✅ CSV actualizado con columnas 'image_path' y 'json_label'")
 
 
