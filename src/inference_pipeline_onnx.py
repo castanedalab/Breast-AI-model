@@ -436,6 +436,8 @@ def main():
 
     # === Exportar CSV final con resumen ===
     df = summarize_ensemble_predictions(all_votes)
+    print("Predicciones por video:")
+    print(df)
     df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
