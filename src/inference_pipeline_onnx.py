@@ -385,7 +385,9 @@ def main():
         #     video_path=video_path,
         #     crop_coords=crop_coords,
         # )
-        idxs = select_candidate_frames(mask, n_samples=args.n_samples, tol=args.tol)
+        idxs, detected = select_candidate_frames(
+            mask, n_samples=args.n_samples, tol=args.tol
+        )
 
         idxs_orig = [int(idx * video_clean.shape[0] / mask.shape[0]) for idx in idxs]
         frames = [video_clean[i] for i in idxs_orig]
@@ -393,7 +395,7 @@ def main():
 
         # Guardar frames usados para clasificación
         frames_dir = os.path.join(args.out_dir, "frames")
-        frame_paths, detected = save_classification_frames(frames, frames_dir, clip)
+        frame_paths = save_classification_frames(frames, frames_dir, clip)
         if not detected:
             print(f"⚠️ No se detectaron frames válidos para {clip}. Usando frame 0.")
             frame_paths = [os.path.join("frames", f"{clip}_f0.png")]
