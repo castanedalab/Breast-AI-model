@@ -438,7 +438,7 @@ def main():
     df = summarize_ensemble_predictions(all_votes)
     print("Predicciones por video:")
     print(df)
-    df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
+    # df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
 
@@ -448,7 +448,7 @@ def main():
     }  # Debido a que el primer frame es el index mas grande
 
     # 2. Convertir 'final_label' a formato JSON como dict string
-    df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
+    df["json_label"] = df["final_label"].apply(lambda x: '{ "result": ' + x + " }")
 
     # Guardar CSV nuevamente con nuevas columnas
     df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
