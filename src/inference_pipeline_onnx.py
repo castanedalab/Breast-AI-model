@@ -400,6 +400,7 @@ def main():
             print(f"⚠️ No se detectaron frames válidos para {clip}. Usando frame 0.")
             frame_paths = [os.path.join("frames", f"{clip}_f0.png")]
             frame_votes = ["No follow up"] * len(frames)  # Predicción por defecto
+            del sample, x, mask, frames
 
         else:
             # Dataset + DataLoader para esos frames
@@ -428,10 +429,8 @@ def main():
                 votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
                 winner, _ = Counter(votes).most_common(1)[0]
                 frame_votes.append(winner)
-
+            del sample, x, mask, frames, dl_cls, probs
         all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
-
-        del sample, x, mask, frames, dl_cls, probs
 
         gc.collect()
 
