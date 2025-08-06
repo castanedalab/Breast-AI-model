@@ -60,7 +60,7 @@ skvideo.setFFmpegPath("./ffmpeg/bin")
 import skvideo.io
 
 # Mapa numérico a etiquetas para clasificación
-LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Biopsy"}
+LABEL_MAP = {0: "No follow up", 1: "Follow up", 2: "Refer to specialist"}
 
 
 # === Función para remover el marcador brillante tipo "B" ===
@@ -100,7 +100,8 @@ def select_candidate_frames(mask_array, n_samples=5, tol=0.2):
     # mask_array: (D,H,W)
     areas = mask_array.reshape(mask_array.shape[0], -1).sum(1)
     if areas.max() == 0:
-        raise RuntimeError("No hay frames con máscara.")
+        # raise RuntimeError("No hay frames con máscara.")
+        return [0] * n_samples, False
     idx_max = int(np.argmax(areas))
 
     # el resto que tenga algo de máscara
@@ -123,7 +124,7 @@ def select_candidate_frames(mask_array, n_samples=5, tol=0.2):
     scores.sort(key=lambda x: x[1])  # menor → más distinto
     selected = [i for i, _ in scores[:n_samples]]
 
-    return [idx_max] + selected
+    return [idx_max] + selected, True
 
 
 # === Función para detectar zona activa mediante diferencia de frames ===
@@ -392,37 +393,39 @@ def main():
 
         # Guardar frames usados para clasificación
         frames_dir = os.path.join(args.out_dir, "frames")
-        frame_paths = save_classification_frames(frames, frames_dir, clip)
+        frame_paths, detected = save_classification_frames(frames, frames_dir, clip)
+        if not detected:
+            print(f"⚠️ No se detectaron frames válidos para {clip}. Usando frame 0.")
+            frame_paths = [os.path.join("frames", f"{clip}_f0.png")]
+            frame_votes = ["No follow up"] * len(frames)  # Predicción por defecto
 
-        # Dataset + DataLoader para esos frames
-        ds_cls = FrameDataset(
-            frames,
-            cls_transforms.Compose(
-                [
-                    cls_transforms.ToPILImage(),
-                    cls_transforms.Resize((224, 224)),
-                    cls_transforms.ToTensor(),
-                    cls_transforms.Normalize([0.5] * 3, [0.5] * 3),
-                ]
-            ),
-        )
-        dl_cls = DataLoader(
-            ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
-        )
+        else:
+            # Dataset + DataLoader para esos frames
+            ds_cls = FrameDataset(
+                frames,
+                cls_transforms.Compose(
+                    [
+                        cls_transforms.ToPILImage(),
+                        cls_transforms.Resize((224, 224)),
+                        cls_transforms.ToTensor(),
+                        cls_transforms.Normalize([0.5] * 3, [0.5] * 3),
+                    ]
+                ),
+            )
+            dl_cls = DataLoader(
+                ds_cls, batch_size=args.cls_batch_size, shuffle=False, num_workers=2
+            )
 
-        # Carga de modelos clasificadores
-        # cls_models = [load_model_onnx(p)[0] for p in args.cls_onnx_paths]
-        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # Carga de modelos clasificadores
+            # Inferencia con cada modelo → softmax por frame
+            probs = [predict_with_model_onnx(m, dl_cls) for m in cls_models]
 
-        # Inferencia con cada modelo → softmax por frame
-        probs = [predict_with_model_onnx(m, dl_cls) for m in cls_models]
-
-        # Voting por frame (majority vote)
-        frame_votes = []
-        for f in range(len(frames)):
-            votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
-            winner, _ = Counter(votes).most_common(1)[0]
-            frame_votes.append(winner)
+            # Voting por frame (majority vote)
+            frame_votes = []
+            for f in range(len(frames)):
+                votes = [LABEL_MAP[np.argmax(p[f])] for p in probs]
+                winner, _ = Counter(votes).most_common(1)[0]
+                frame_votes.append(winner)
 
         all_votes[clip] = {"votes": frame_votes, "frame_paths": frame_paths}
 
@@ -436,10 +439,10 @@ def main():
 
     # === POSTPROCESAMIENTO DEL CSV ===
 
-    # 1. Añadir columna 'image_path' con ruta relativa (una imagen por clip)
-    df["image_path"] = df["patient_id"].apply(
-        lambda c: os.path.join("images", c + ".png")
-    )
+    # 1. Añadir columna 'representative_path' con ruta relativa (una imagen por clip)
+    df["representative_path"] = frame_paths[
+        0
+    ]  # Debido a que el primer frame es el index mas grande
 
     # 2. Convertir 'final_label' a formato JSON como dict string
     df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
