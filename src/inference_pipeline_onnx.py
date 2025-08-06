@@ -439,7 +439,7 @@ def main():
     # df.to_csv(os.path.join(args.out_dir, args.output_csv), index=False)
 
     # === POSTPROCESAMIENTO DEL CSV ===
-
+    print(frame_paths)
     # 1. Añadir columna 'representative_path' con ruta relativa (una imagen por clip)
     df["representative_path"] = {
         "path": frame_paths[0]
