@@ -442,9 +442,9 @@ def main():
     # === POSTPROCESAMIENTO DEL CSV ===
 
     # 1. Añadir columna 'representative_path' con ruta relativa (una imagen por clip)
-    df["representative_path"] = frame_paths[
-        0
-    ]  # Debido a que el primer frame es el index mas grande
+    df["representative_path"] = {
+        "path": frame_paths[0]
+    }  # Debido a que el primer frame es el index mas grande
 
     # 2. Convertir 'final_label' a formato JSON como dict string
     df["json_label"] = df["final_label"].apply(lambda x: '{ "result": "' + x + '" }')
