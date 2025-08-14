@@ -19,3 +19,5 @@
 *.onnx
 *.png
 *.mp4
+*.npy
+*.jpg
